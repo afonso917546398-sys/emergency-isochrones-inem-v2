@@ -11,8 +11,10 @@ const ORS_BASE    = 'https://api.openrouteservice.org/v2';
 const MAP_CENTER  = [40.15, -8.15];
 const MAP_ZOOM    = 8;
 
-// Flat emergency speed factor applied to ORS/grid durations (lights-and-sirens vs normal driving)
-const EMERGENCY_SPEED_FACTOR = 1.3;
+// Speed factors applied to ORS base durations (civilian driving = 1.0)
+// > 1.0 → faster (lights+sirens);  < 1.0 → slower (patient transport)
+const EMERGENCY_SPEED_FACTOR = 1.30;  // units responding to incident
+const HOSPITAL_SPEED_FACTOR  = 0.85;  // transport to hospital — cautious, no sirens (~18% slower than ORS civilian)
 
 // Route palette: ATC phosphor green (units) + ATC amber (hospitals)
 const UNIT_ROUTE_COLORS = ['#00e676', '#1de9b6', '#69f0ae', '#00bfa5', '#b9f6ca'];
@@ -23,8 +25,9 @@ const HOSP_ROUTE_COLORS = ['#ffc400', '#ff9100', '#ffab00'];
 // 1=motorway, 2=trunk, 4=primary, 8=secondary, 16=tertiary, 32=residential, 64=track/path
 const WAY_CAT_INDEX = { 1:0, 2:1, 4:2, 8:3, 16:4, 32:5, 64:6 };
 
-// Emergency speed factor per road type per vehicle class
-// VMER = light car (responds fast); VAN = AEM/SIV ambulance van (heavier, worse in curves/hills)
+// Speed factors per road type × vehicle profile
+// VMER = light car, lights+sirens  |  VAN = AEM/SIV ambulance van, lights+sirens
+// TRANSPORT = ambulance with patient — no sirens, smooth cautious driving
 const SPEED_FACTORS = {
   vmer: {
     way:   [1.50, 1.35, 1.25, 1.18, 1.12, 1.10, 1.00], // motorway→track
@@ -33,6 +36,11 @@ const SPEED_FACTORS = {
   van: {
     way:   [1.20, 1.12, 1.08, 1.05, 1.02, 1.00, 0.90],
     steep: [1.00, 0.94, 0.82, 0.72, 0.68]
+  },
+  transport: {
+    // < 1.0 → longer than ORS civilian time (patient comfort, no urgency)
+    way:   [0.95, 0.88, 0.82, 0.77, 0.73, 0.70, 0.62], // smooth highway → rough track
+    steep: [1.00, 0.93, 0.84, 0.74, 0.66]               // careful braking on gradients
   }
 };
 
@@ -418,7 +426,9 @@ function computeSegmentETA(feature, subGroup, hour) {
 
   if (!segments || !extras?.waycategory?.values) return null;
 
-  const profile = (subGroup === 'vmer' || subGroup === 'hosp') ? SPEED_FACTORS.vmer : SPEED_FACTORS.van;
+  const profile = subGroup === 'hosp'  ? SPEED_FACTORS.transport
+               : subGroup === 'vmer'  ? SPEED_FACTORS.vmer
+               : SPEED_FACTORS.van;
   const congestionFactor = CONGESTION_BY_HOUR[hour] ?? 1.0;
 
   // Build per-point arrays from interval encoding [startIdx, endIdx, value]
@@ -566,11 +576,11 @@ function computeInstantETAs(destLat, destLon) {
   });
   unitETAs.sort((a, b) => a.etaMin - b.etaMin);
 
-  // Hospital estimates (haversine)
+  // Hospital estimates (haversine) — cautious transport speed
   const allHospETAs = allHospitals
     .map(h => ({
       ...h,
-      etaMin: estimateETA(destLat, destLon, h),
+      etaMin: estimateETA(destLat, destLon, h, HOSPITAL_SPEED_FACTOR),
       distKm: haversineKm(destLat, destLon, h.lat, h.lon) * 1.45,
       source: 'estimate'
     }))
@@ -725,13 +735,13 @@ async function computeHospitalETAs(destLat, destLon) {
       candidates.forEach((h, i) => {
         const sec  = data.durations?.[i]?.[0] ?? null;
         const dist = data.distances?.[i]?.[0] ?? null;
-        h.etaMin = sec  != null ? sec  / EMERGENCY_SPEED_FACTOR / 60 : estimateETA(destLat, destLon, h);
+        h.etaMin = sec  != null ? sec  * HOSPITAL_SPEED_FACTOR  / 60 : estimateETA(destLat, destLon, h);
         h.distKm = dist != null ? dist / 1000                         : h.distKm * 1.45;
         h.source = sec != null ? 'ors' : 'estimate';
       });
     } else {
       candidates.forEach(h => {
-        h.etaMin = estimateETA(destLat, destLon, h);
+        h.etaMin = estimateETA(destLat, destLon, h, HOSPITAL_SPEED_FACTOR);
         h.distKm = h.distKm * 1.45;
         h.source = 'estimate';
       });
@@ -758,9 +768,9 @@ async function computeHospitalETAs(destLat, destLon) {
   return chosen;
 }
 
-function estimateETA(destLat, destLon, unit) {
+function estimateETA(destLat, destLon, unit, speedFactor = EMERGENCY_SPEED_FACTOR) {
   const dist = haversineKm(destLat, destLon, unit.lat, unit.lon);
-  return (dist * 1.6) / (80 * EMERGENCY_SPEED_FACTOR) * 60;
+  return (dist * 1.6) / (80 * speedFactor) * 60;
 }
 
 function haversineKm(lat1, lon1, lat2, lon2) {
