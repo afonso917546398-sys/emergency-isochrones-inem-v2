@@ -136,7 +136,30 @@ function renderResults() {
   const filtered = getFilteredUnits();
   const hospitals = state.lastSearch.allHospETAs;
 
+  // Count fallback sources across all results
+  const allResults = [...state.lastSearch.allUnitETAs, ...hospitals];
+  const nEstimate  = allResults.filter(r => r.source === 'estimate').length;
+  const nGrid      = allResults.filter(r => r.source === 'grid').length;
+
+  let sourceSummary = '';
+  if (nEstimate > 0) sourceSummary = `<span style="color:#ef4444">${nEstimate} estimado${nEstimate > 1 ? 's' : ''}</span>`;
+  else if (nGrid > 0) sourceSummary = `<span style="color:#f59e0b">${nGrid} aprox.</span>`;
+
   let html = '';
+
+  // ---- Recalculate bar ----
+  html += `<div class="recalc-bar">
+    <span class="recalc-bar-label">
+      ${sourceSummary || '<strong>ORS</strong> · rede viária real'}
+    </span>
+    <button class="recalc-btn" id="recalc-btn">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M23 4v6h-6M1 20v-6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Recalcular
+    </button>
+  </div>`;
 
   // ---- Units section ----
   html += `<div class="results-section">
@@ -153,7 +176,7 @@ function renderResults() {
       const km   = u.distKm ? u.distKm.toFixed(1) : '—';
       const activeRoute = state.unitRoutes.find(r => r.name === u.name);
       const routeColor  = activeRoute ? activeRoute.color : '';
-      html += resultRowHTML(u.name, u.typeLabel, u.color, mins, km, 'unit', !!activeRoute, routeColor, u.lat, u.lon);
+      html += resultRowHTML(u.name, u.typeLabel, u.color, mins, km, 'unit', !!activeRoute, routeColor, u.lat, u.lon, false, u.source);
     });
   }
   html += '</div>';
@@ -172,7 +195,7 @@ function renderResults() {
     const col = typeColors[h.typeLabel] || '#16a34a';
     const activeRoute = state.hospRoutes.find(r => r.name === h.name);
     const routeColor  = activeRoute ? activeRoute.color : '';
-    html += resultRowHTML(h.name, h.typeLabel, col, mins, km, 'hosp', !!activeRoute, routeColor, h.lat, h.lon, true);
+    html += resultRowHTML(h.name, h.typeLabel, col, mins, km, 'hosp', !!activeRoute, routeColor, h.lat, h.lon, true, h.source);
   });
   html += '</div>';
 
@@ -196,21 +219,58 @@ function renderResults() {
       renderResults();
     });
   });
+
+  // Recalculate button
+  const recalcBtn = document.getElementById('recalc-btn');
+  if (recalcBtn) {
+    recalcBtn.addEventListener('click', async () => {
+      if (!state.lastSearch) return;
+      recalcBtn.classList.add('loading');
+      recalcBtn.textContent = 'A calcular…';
+
+      clearAllRoutes();
+      document.getElementById('results-panel').innerHTML = `
+        <div class="results-computing">
+          <div class="spinner"></div>
+          A recalcular ETAs via ORS…
+        </div>`;
+      showStatus('A recalcular…');
+
+      const { allUnitETAs, allHospETAs } = await computeAllETAs(state.lastSearch.lat, state.lastSearch.lon);
+      state.lastSearch.allUnitETAs = allUnitETAs;
+      state.lastSearch.allHospETAs = allHospETAs;
+
+      const filtered = allUnitETAs.filter(u => state.typeFilters.has(u.subGroup) && u.etaMin <= state.timeFilter);
+      showStatus(`${filtered.length} meios · ${allHospETAs.length} hospitais`);
+      renderResults();
+    });
+  }
 }
 
-function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeColor, lat, lon, isHosp = false) {
-  const activeStyle = isActive ? `style="--route-color:${routeColor}"` : '';
-  const activeClass = isActive ? 'route-active' : '';
-  const hospClass   = isHosp  ? ' hosp-row' : '';
-  return `<div class="result-row${hospClass} ${activeClass}" ${activeStyle}>
+function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeColor, lat, lon, isHosp = false, source = 'ors') {
+  const activeStyle  = isActive ? `style="--route-color:${routeColor}"` : '';
+  const activeClass  = isActive ? 'route-active' : '';
+  const hospClass    = isHosp   ? ' hosp-row'    : '';
+  const sourceClass  = source !== 'ors' ? ` source-${source}` : '';
+
+  const sourceBadge = source === 'estimate'
+    ? `<span class="source-badge source-badge--estimate" title="ETA estimado por linha recta — ORS indisponível">EST</span>`
+    : source === 'grid'
+    ? `<span class="source-badge source-badge--grid" title="ETA aproximado por grelha pré-calculada">~</span>`
+    : '';
+
+  const distLabel = source === 'estimate' ? `~${km} km` : `${km} km`;
+
+  return `<div class="result-row${hospClass}${sourceClass} ${activeClass}" ${activeStyle}>
     <div class="result-dot" style="background:${color}"></div>
     <div class="result-info">
       <span class="result-name">${name}</span>
       <span class="result-type-badge" style="color:${color}">${typeLabel}</span>
+      ${sourceBadge}
     </div>
     <div class="result-meta">
       <span class="result-eta">${mins}'</span>
-      <span class="result-dist">${km} km</span>
+      <span class="result-dist">${distLabel}</span>
     </div>
     <button class="result-route-btn ${isActive ? 'active' : ''}"
             data-name="${name}" data-rtype="${rtype}" data-lat="${lat}" data-lon="${lon}"
@@ -261,7 +321,7 @@ async function fetchRoute(fromLat, fromLon, toLat, toLon, color) {
     const resp = await fetch(`${ORS_BASE}/directions/driving-car/geojson`, {
       method: 'POST',
       headers: { 'Authorization': ORS_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ coordinates: [[fromLon, fromLat], [toLon, toLat]] })
+      body: JSON.stringify({ coordinates: [[fromLon, fromLat], [toLon, toLat]], preference: 'fastest' })
     });
     if (!resp.ok) throw new Error('ORS directions ' + resp.status);
     const gj = await resp.json();
@@ -289,27 +349,23 @@ function clearAllRoutes() {
 
 // ===================== ETA COMPUTATION =====================
 async function computeAllETAs(destLat, destLon) {
-  // --- Units ---
-  let unitETAs = [];
+  // Primary: ORS Matrix for all units (road network, real distances)
+  let unitETAs = await computeORSETAs(destLat, destLon, allUnits);
 
-  // Try grid first
-  if (typeof GRID_ETA_DATA !== 'undefined') {
-    unitETAs = computeGridETAs(destLat, destLon, allUnits);
+  // For any that fell back to estimate, try grid as secondary fallback
+  const needGrid = unitETAs.filter(u => u.source === 'estimate').map(u => u.name);
+  if (needGrid.length > 0 && typeof GRID_ETA_DATA !== 'undefined') {
+    const gridUnits = allUnits.filter(u => needGrid.includes(u.name));
+    const gridRes   = computeGridETAs(destLat, destLon, gridUnits);
+    unitETAs = unitETAs.map(u => {
+      if (u.source !== 'estimate') return u;
+      return gridRes.find(g => g.name === u.name) || u;
+    });
   }
 
-  // Units missing from grid → ORS matrix
-  const missing = allUnits.filter(u => !unitETAs.find(e => e.name === u.name));
-  if (missing.length > 0) {
-    const orsRes = await computeORSETAs(destLat, destLon, missing);
-    unitETAs = [...unitETAs, ...orsRes];
-  }
-
-  // Sort by ETA
   unitETAs.sort((a, b) => a.etaMin - b.etaMin);
 
-  // --- Hospitals: 5 closest (3 main + 2 SUB) by ETA ---
   const allHospETAs = await computeHospitalETAs(destLat, destLon);
-
   return { allUnitETAs: unitETAs, allHospETAs };
 }
 
@@ -340,7 +396,8 @@ function computeGridETAs(destLat, destLon, units) {
     if (sumW === 0) return;
 
     const etaMin = (sumETA / sumW) / EMERGENCY_SPEED_FACTOR / 60;
-    const distKm = haversineKm(destLat, destLon, unit.lat, unit.lon);
+    // Grid has no road distance — apply typical road tortuosity factor for Portugal
+    const distKm = haversineKm(destLat, destLon, unit.lat, unit.lon) * 1.45;
     results.push({ ...unit, etaMin, distKm, source: 'grid' });
   });
   return results;
@@ -349,31 +406,35 @@ function computeGridETAs(destLat, destLon, units) {
 async function computeORSETAs(destLat, destLon, units) {
   if (units.length === 0) return [];
   try {
-    const locations = [[destLon, destLat], ...units.map(u => [u.lon, u.lat])];
+    // Index 0 = search point; 1..N = units
+    // sources = units, destination = search point → time FROM unit TO incident
+    const locations    = [[destLon, destLat], ...units.map(u => [u.lon, u.lat])];
+    const unitIndices  = units.map((_, i) => i + 1);
     const resp = await fetch(`${ORS_BASE}/matrix/driving-car`, {
       method: 'POST',
       headers: { 'Authorization': ORS_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        locations, sources: [0],
-        destinations: units.map((_, i) => i + 1),
-        metrics: ['duration']
+        locations,
+        sources:      unitIndices,   // each unit is a source
+        destinations: [0],           // search point is the destination
+        metrics: ['duration', 'distance']
       })
     });
     if (!resp.ok) throw new Error('ORS matrix ' + resp.status);
     const data = await resp.json();
-    const durs = data.durations?.[0] || [];
+    // Response: durations[i][0] = duration from unit i to search point
     return units.map((u, i) => {
-      const sec = durs[i] ?? null;
-      const etaMin  = sec != null
-        ? sec / EMERGENCY_SPEED_FACTOR / 60
-        : estimateETA(destLat, destLon, u);
-      return { ...u, etaMin, distKm: haversineKm(destLat, destLon, u.lat, u.lon), source: sec != null ? 'ors' : 'estimate' };
+      const sec  = data.durations?.[i]?.[0]  ?? null;
+      const dist = data.distances?.[i]?.[0]  ?? null;
+      const etaMin = sec  != null ? sec  / EMERGENCY_SPEED_FACTOR / 60          : estimateETA(destLat, destLon, u);
+      const distKm = dist != null ? dist / 1000                                  : haversineKm(destLat, destLon, u.lat, u.lon) * 1.45;
+      return { ...u, etaMin, distKm, source: sec != null ? 'ors' : 'estimate' };
     });
   } catch (_) {
     return units.map(u => ({
       ...u,
       etaMin: estimateETA(destLat, destLon, u),
-      distKm: haversineKm(destLat, destLon, u.lat, u.lon),
+      distKm: haversineKm(destLat, destLon, u.lat, u.lon) * 1.45,
       source: 'estimate'
     }));
   }
@@ -383,40 +444,53 @@ async function computeHospitalETAs(destLat, destLon) {
   const main = allHospitals.filter(h => h.typeLabel !== 'SUB');
   const subs = allHospitals.filter(h => h.typeLabel === 'SUB');
 
-  // Take top 6 main + top 4 sub by distance as candidates
+  // Pre-select candidates by straight-line distance before calling ORS
   const candidates = [
     ...main.map(h => ({ ...h, distKm: haversineKm(destLat, destLon, h.lat, h.lon) })).sort((a,b) => a.distKm - b.distKm).slice(0, 6),
     ...subs.map(h => ({ ...h, distKm: haversineKm(destLat, destLon, h.lat, h.lon) })).sort((a,b) => a.distKm - b.distKm).slice(0, 4),
   ];
 
   try {
-    const locations = [[destLon, destLat], ...candidates.map(h => [h.lon, h.lat])];
+    // sources = hospitals → destination = search point (time from hospital to incident)
+    const locations    = [[destLon, destLat], ...candidates.map(h => [h.lon, h.lat])];
+    const hospIndices  = candidates.map((_, i) => i + 1);
     const resp = await fetch(`${ORS_BASE}/matrix/driving-car`, {
       method: 'POST',
       headers: { 'Authorization': ORS_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        locations, sources: [0],
-        destinations: candidates.map((_, i) => i + 1),
-        metrics: ['duration']
+        locations,
+        sources:      hospIndices,
+        destinations: [0],
+        metrics: ['duration', 'distance']
       })
     });
     if (resp.ok) {
       const data = await resp.json();
-      const durs = data.durations?.[0] || [];
       candidates.forEach((h, i) => {
-        const sec = durs[i] ?? null;
-        h.etaMin = sec != null ? sec / EMERGENCY_SPEED_FACTOR / 60 : estimateETA(destLat, destLon, h);
+        const sec  = data.durations?.[i]?.[0] ?? null;
+        const dist = data.distances?.[i]?.[0] ?? null;
+        h.etaMin = sec  != null ? sec  / EMERGENCY_SPEED_FACTOR / 60 : estimateETA(destLat, destLon, h);
+        h.distKm = dist != null ? dist / 1000                         : h.distKm * 1.45;
+        h.source = sec != null ? 'ors' : 'estimate';
       });
     } else {
-      candidates.forEach(h => { h.etaMin = estimateETA(destLat, destLon, h); });
+      candidates.forEach(h => {
+        h.etaMin = estimateETA(destLat, destLon, h);
+        h.distKm = h.distKm * 1.45;
+        h.source = 'estimate';
+      });
     }
   } catch (_) {
-    candidates.forEach(h => { h.etaMin = estimateETA(destLat, destLon, h); });
+    candidates.forEach(h => {
+      h.etaMin = estimateETA(destLat, destLon, h);
+      h.distKm = h.distKm * 1.45;
+      h.source = 'estimate';
+    });
   }
 
   candidates.sort((a, b) => a.etaMin - b.etaMin);
 
-  // Pick 3 main (SUP/SUMC) + 2 SUB
+  // Pick 3 main (SUP/SUMC) + 2 SUB, sorted by ETA
   const chosen = [];
   let mainPicked = 0, subPicked = 0;
   for (const h of candidates) {
@@ -424,7 +498,6 @@ async function computeHospitalETAs(destLat, destLon) {
     else if (h.typeLabel === 'SUB' && subPicked < 2) { chosen.push(h); subPicked++; }
     if (mainPicked >= 3 && subPicked >= 2) break;
   }
-  // Sort final list by ETA
   chosen.sort((a, b) => a.etaMin - b.etaMin);
   return chosen;
 }

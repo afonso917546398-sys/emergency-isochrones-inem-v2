@@ -451,6 +451,77 @@ html, body {
 .result-route-btn.active:hover { color: #ef4444; }
 .result-route-btn svg { width: 14px; height: 14px; display: block; }
 
+/* Source quality indicators */
+.result-row.source-grid .result-eta { color: #f59e0b; }
+.result-row.source-grid .result-dist::after {
+  content: ' ~';
+  color: #f59e0b;
+  font-weight: 700;
+}
+.result-row.source-estimate .result-eta { color: #ef4444; }
+.result-row.source-estimate .result-name { color: #ef4444; }
+.result-row.source-estimate .result-dist { color: #ef4444; opacity: 0.7; }
+
+.source-badge {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  align-self: center;
+}
+.source-badge--grid {
+  background: rgba(245,158,11,0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245,158,11,0.3);
+}
+.source-badge--estimate {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.3);
+}
+
+/* Recalculate button */
+.recalc-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.recalc-bar-label {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.recalc-bar-label strong { color: var(--text-muted); font-weight: 600; }
+
+.recalc-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.recalc-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--aem-color);
+}
+.recalc-btn svg { width: 13px; height: 13px; }
+.recalc-btn.loading { opacity: 0.6; pointer-events: none; }
+.recalc-btn.loading svg { animation: spin 0.8s linear infinite; }
+
 /* =========================================
    SIDEBAR FOOTER
    ========================================= */
