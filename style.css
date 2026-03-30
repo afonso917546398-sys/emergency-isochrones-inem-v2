@@ -501,6 +501,91 @@ html, body {
   border: 1px solid rgba(80,80,80,0.25);
 }
 
+/* Time-of-day bar */
+.tod-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--surface-2);
+}
+
+.tod-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  width: 26px;
+}
+
+.tod-slider {
+  flex: 1;
+  height: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--border-light);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.tod-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #606268;
+  cursor: pointer;
+  border: 1px solid #404048;
+}
+.tod-slider::-moz-range-thumb {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #606268;
+  cursor: pointer;
+  border: 1px solid #404048;
+}
+.tod-slider:hover::-webkit-slider-thumb { background: #909298; }
+
+.tod-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 34px;
+  text-align: right;
+  letter-spacing: 0.02em;
+}
+
+.tod-congestion {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  width: 28px;
+  text-align: right;
+}
+.tod-congestion.peak { color: #686040; }
+
+/* Refined ETA badge */
+.source-badge--refined {
+  background: rgba(100,100,120,0.18);
+  color: #8888a0;
+  border: 1px solid rgba(100,100,120,0.3);
+}
+
+/* Alt ETA inline badge */
+.alt-eta-badge {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-faint);
+  margin-left: 3px;
+  letter-spacing: 0;
+}
+
 /* Recalculate button */
 .recalc-bar {
   display: flex;

@@ -8,7 +8,6 @@
 // ===================== CONFIG =====================
 const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjllZWUxY2ZjM2IzYTQwY2RhZTRjMDA0MTA0MzZkODE3IiwiaCI6Im11cm11cjY0In0=';
 const ORS_BASE    = 'https://api.openrouteservice.org/v2';
-const EMERGENCY_SPEED_FACTOR = 1.3;
 const MAP_CENTER  = [40.15, -8.15];
 const MAP_ZOOM    = 8;
 
@@ -16,10 +15,43 @@ const MAP_ZOOM    = 8;
 const UNIT_ROUTE_COLORS = ['#707078', '#888890', '#585860', '#989aa0', '#484850'];
 const HOSP_ROUTE_COLORS = ['#484850', '#585860', '#686870'];
 
+// ===================== SPEED TABLES =====================
+// ORS waycategory values → index mapping
+// 1=motorway, 2=trunk, 4=primary, 8=secondary, 16=tertiary, 32=residential, 64=track/path
+const WAY_CAT_INDEX = { 1:0, 2:1, 4:2, 8:3, 16:4, 32:5, 64:6 };
+
+// Emergency speed factor per road type per vehicle class
+// VMER = light car (responds fast); VAN = AEM/SIV ambulance van (heavier, worse in curves/hills)
+const SPEED_FACTORS = {
+  vmer: {
+    way:   [1.50, 1.35, 1.25, 1.18, 1.12, 1.10, 1.00], // motorway→track
+    steep: [1.00, 0.95, 0.88, 0.80, 0.75]               // flat→very_steep
+  },
+  van: {
+    way:   [1.20, 1.12, 1.08, 1.05, 1.02, 1.00, 0.90],
+    steep: [1.00, 0.94, 0.82, 0.72, 0.68]
+  }
+};
+
+// ORS steepness values → index (0=flat, 1=slight, 2=moderate, 3=steep, 4=very_steep)
+// ORS encodes steepness as signed integers: negative = downhill, positive = uphill
+// We use absolute value and clamp to 0–4
+function steepIdx(v) { return Math.min(4, Math.abs(v)); }
+
+// Urban congestion multiplier applied to residential/tertiary segments
+// Index = hour of day (0–23)
+const CONGESTION_BY_HOUR = [
+  1.00,1.00,1.00,1.00,1.00,1.00, // 0–5
+  0.95,0.85,0.80,0.90,0.95,0.97, // 6–11 (morning peak at 7–8)
+  0.95,0.93,0.95,0.97,0.85,0.82, // 12–17 (afternoon peak at 17)
+  0.88,0.93,0.97,1.00,1.00,1.00  // 18–23
+];
+
 // ===================== STATE =====================
 const state = {
   timeFilter:  30,                        // active time cap (30 | 60 | 90)
   typeFilters: new Set(['aem','siv','vmer']),
+  timeOfDay:   new Date().getHours(),     // 0–23, controls congestion factor
   lastSearch:  null,                      // { lat, lon, label, allUnitETAs, allHospETAs }
   searchMarker: null,
   unitRoutes:  [],                        // [{ name, layer, color }]  max 5
@@ -176,7 +208,7 @@ function renderResults() {
       const km   = u.distKm ? u.distKm.toFixed(1) : '—';
       const activeRoute = state.unitRoutes.find(r => r.name === u.name);
       const routeColor  = activeRoute ? activeRoute.color : '';
-      html += resultRowHTML(u.name, u.typeLabel, u.color, mins, km, 'unit', !!activeRoute, routeColor, u.lat, u.lon, false, u.source);
+      html += resultRowHTML(u.name, u.typeLabel, u.color, mins, km, 'unit', !!activeRoute, routeColor, u.lat, u.lon, false, u.source, u.altEtaMin ?? null, u.avgFactor ?? null);
     });
   }
   html += '</div>';
@@ -195,7 +227,7 @@ function renderResults() {
     const col = typeColors[h.typeLabel] || '#686a70';
     const activeRoute = state.hospRoutes.find(r => r.name === h.name);
     const routeColor  = activeRoute ? activeRoute.color : '';
-    html += resultRowHTML(h.name, h.typeLabel, col, mins, km, 'hosp', !!activeRoute, routeColor, h.lat, h.lon, true, h.source);
+    html += resultRowHTML(h.name, h.typeLabel, col, mins, km, 'hosp', !!activeRoute, routeColor, h.lat, h.lon, true, h.source, h.altEtaMin ?? null, h.avgFactor ?? null);
   });
   html += '</div>';
 
@@ -247,21 +279,30 @@ function renderResults() {
   }
 }
 
-function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeColor, lat, lon, isHosp = false, source = 'ors') {
+function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeColor, lat, lon, isHosp = false, source = 'ors', altEtaMin = null, avgFactor = null) {
   const activeStyle  = isActive ? `style="--route-color:${routeColor}"` : '';
   const activeClass  = isActive ? 'route-active' : '';
   const hospClass    = isHosp   ? ' hosp-row'    : '';
-  const sourceClass  = source !== 'ors' ? ` source-${source}` : '';
+  const sourceClass  = (source === 'estimate' || source === 'grid') ? ` source-${source}` : '';
 
   const sourceBadge = source === 'estimate'
-    ? `<span class="source-badge source-badge--estimate" title="ETA estimado por linha recta — ORS indisponível">EST</span>`
+    ? `<span class="source-badge source-badge--estimate" title="ETA estimado (ORS indisponível)">EST</span>`
     : source === 'grid'
-    ? `<span class="source-badge source-badge--grid" title="ETA aproximado por grelha pré-calculada">~</span>`
+    ? `<span class="source-badge source-badge--grid" title="ETA por grelha OSRM (aproximado)">~</span>`
+    : source === 'ors-refined'
+    ? `<span class="source-badge source-badge--refined" title="ETA refinado por análise de segmentos${avgFactor ? ' · fator médio ×'+avgFactor : ''}">↺</span>`
     : '';
 
   const distLabel = source === 'estimate' ? `~${km} km` : `${km} km`;
+  const altBadge  = (altEtaMin != null && isActive)
+    ? `<span class="alt-eta-badge" title="Rota alternativa">(alt ${Math.round(altEtaMin)}')</span>`
+    : '';
 
-  return `<div class="result-row${hospClass}${sourceClass} ${activeClass}" ${activeStyle}>
+  const tooltip = avgFactor
+    ? `title="Fator emergência médio: ×${avgFactor} · ${typeLabel}"`
+    : '';
+
+  return `<div class="result-row${hospClass}${sourceClass} ${activeClass}" ${activeStyle} ${tooltip}>
     <div class="result-dot" style="background:${color}"></div>
     <div class="result-info">
       <span class="result-name">${name}</span>
@@ -269,7 +310,7 @@ function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeC
       ${sourceBadge}
     </div>
     <div class="result-meta">
-      <span class="result-eta">${mins}'</span>
+      <span class="result-eta">${mins}'${altBadge}</span>
       <span class="result-dist">${distLabel}</span>
     </div>
     <button class="result-route-btn ${isActive ? 'active' : ''}"
@@ -295,6 +336,7 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   const existIdx = routes.findIndex(r => r.name === name);
   if (existIdx >= 0) {
     map.removeLayer(routes[existIdx].layer);
+    if (routes[existIdx].altLayer) map.removeLayer(routes[existIdx].altLayer);
     routes.splice(existIdx, 1);
     return;
   }
@@ -303,46 +345,184 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   while (routes.length >= maxCount) {
     const oldest = routes.shift();
     map.removeLayer(oldest.layer);
+    if (oldest.altLayer) map.removeLayer(oldest.altLayer);
   }
 
   // Assign color by current queue length
   const color = colors[routes.length % colors.length];
 
+  // Determine vehicle subGroup for speed table
+  const etaEntry = isHosp
+    ? state.lastSearch?.allHospETAs?.find(h => h.name === name)
+    : state.lastSearch?.allUnitETAs?.find(u => u.name === name);
+  const subGroup = etaEntry?.subGroup ?? (isHosp ? 'hosp' : 'aem');
+
   if (!state.lastSearch) return;
   showStatus('A traçar rota…');
-  const layer = await fetchRoute(state.lastSearch.lat, state.lastSearch.lon, toLat, toLon, color);
+  const result = await fetchRoute(state.lastSearch.lat, state.lastSearch.lon, toLat, toLon, color, subGroup);
   hideStatus();
 
-  routes.push({ name, layer, color });
+  routes.push({ name, layer: result.layer, altLayer: result.altLayer || null, color });
+
+  // Refine ETA in sidebar if segment analysis differs meaningfully from Matrix estimate
+  if (result.etaMin != null) {
+    const etaStore = isHosp ? state.lastSearch.allHospETAs : state.lastSearch.allUnitETAs;
+    const entry = etaStore.find(e => e.name === name);
+    if (entry) {
+      const delta = Math.abs(result.etaMin - entry.etaMin) / entry.etaMin;
+      if (delta > 0.04) {  // >4% difference → update
+        entry.etaMin      = result.etaMin;
+        entry.distKm      = result.distKm ?? entry.distKm;
+        entry.avgFactor   = result.avgFactor;
+        entry.altEtaMin   = result.altEtaMin;
+        entry.source      = 'ors-refined';
+        renderResults();
+      } else {
+        // Still store alt ETA even if primary didn't change much
+        if (result.altEtaMin != null) { entry.altEtaMin = result.altEtaMin; renderResults(); }
+      }
+    }
+  }
 }
 
-async function fetchRoute(fromLat, fromLon, toLat, toLon, color) {
+// ===================== SEGMENT ETA =====================
+/**
+ * Recalculate ETA using per-segment road type and steepness from ORS extras.
+ * @param {object} feature   - GeoJSON Feature from ORS Directions response
+ * @param {string} subGroup  - 'vmer' | 'aem' | 'siv' | 'hosp'
+ * @param {number} hour      - hour of day (0–23) for congestion factor
+ * @returns {{ etaMin, avgFactor, summary }}
+ */
+function computeSegmentETA(feature, subGroup, hour) {
+  const props    = feature?.properties;
+  const segments = props?.segments;
+  const extras   = props?.extras;
+
+  if (!segments || !extras?.waycategory?.values) return null;
+
+  const profile = (subGroup === 'vmer' || subGroup === 'hosp') ? SPEED_FACTORS.vmer : SPEED_FACTORS.van;
+  const congestionFactor = CONGESTION_BY_HOUR[hour] ?? 1.0;
+
+  // Build per-point arrays from interval encoding [startIdx, endIdx, value]
+  const numPoints = feature.geometry?.coordinates?.length ?? 0;
+  if (numPoints < 2) return null;
+
+  const wayArr   = new Float32Array(numPoints).fill(8); // default: secondary
+  const steepArr = new Int8Array(numPoints).fill(0);
+
+  (extras.waycategory?.values  || []).forEach(([s, e, v]) => { for (let i=s;i<e;i++) wayArr[i]   = v; });
+  (extras.steepness?.values    || []).forEach(([s, e, v]) => { for (let i=s;i<e;i++) steepArr[i] = v; });
+
+  // Aggregate duration from segments steps
+  let totalNormalSec = 0;
+  let totalRefinedSec = 0;
+  let weightedFactor = 0;
+  let totalDist = 0;
+
+  segments.forEach(seg => {
+    (seg.steps || []).forEach(step => {
+      const dur  = step.duration ?? 0;      // normal driving seconds
+      const dist = step.distance ?? 0;
+      const wi   = step.way_points?.[0] ?? 0;  // start point index
+
+      // Road category factor
+      const wCat    = wayArr[wi];
+      const wIdx    = WAY_CAT_INDEX[wCat] ?? WAY_CAT_INDEX[8]; // fallback secondary
+      const wayF    = profile.way[wIdx]   ?? 1.0;
+
+      // Steepness factor
+      const sVal    = steepArr[wi];
+      const sIdx    = steepIdx(sVal);
+      const steepF  = profile.steep[sIdx] ?? 1.0;
+
+      // Congestion only on low-speed roads (residential=32, tertiary=16)
+      const congF   = (wCat >= 16) ? congestionFactor : 1.0;
+
+      // Combined: divide normal time by the combined factor
+      const combinedFactor = wayF * steepF * congF;
+      const refinedDur = dur / combinedFactor;
+
+      totalNormalSec  += dur;
+      totalRefinedSec += refinedDur;
+      weightedFactor  += combinedFactor * dist;
+      totalDist       += dist;
+    });
+  });
+
+  if (totalNormalSec === 0) return null;
+
+  const avgFactor = totalDist > 0 ? weightedFactor / totalDist : 1.3;
+
+  return {
+    etaMin:    totalRefinedSec / 60,
+    avgFactor: Math.round(avgFactor * 100) / 100,
+    distKm:    totalDist / 1000
+  };
+}
+
+async function fetchRoute(fromLat, fromLon, toLat, toLon, color, subGroup = 'aem') {
   try {
+    const body = {
+      coordinates:       [[fromLon, fromLat], [toLon, toLat]],
+      preference:        'fastest',
+      extra_info:        ['steepness', 'waycategory'],
+      alternative_routes: { target_count: 2, share_factor: 0.6, weight_factor: 1.6 }
+    };
+
     const resp = await fetch(`${ORS_BASE}/directions/driving-car/geojson`, {
       method: 'POST',
       headers: { 'Authorization': ORS_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ coordinates: [[fromLon, fromLat], [toLon, toLat]], preference: 'fastest' })
+      body: JSON.stringify(body)
     });
+
     if (!resp.ok) throw new Error('ORS directions ' + resp.status);
     const gj = await resp.json();
-    const layer = L.geoJSON(gj, {
-      style: { color, weight: 4, opacity: 0.88, lineJoin: 'round' }
+    const features = gj.features || [];
+    if (features.length === 0) throw new Error('No features');
+
+    // Primary route
+    const primary = features[0];
+    const primaryLayer = L.geoJSON(primary, {
+      style: { color, weight: 4, opacity: 0.9, lineJoin: 'round' }
     }).addTo(map);
-    // Fit map to show the full route
-    try { map.fitBounds(layer.getBounds(), { padding: [50, 50], maxZoom: 14 }); } catch(_) {}
-    return layer;
+
+    const segResult = computeSegmentETA(primary, subGroup, state.timeOfDay);
+
+    // Alternative route (if present)
+    let altLayer = null, altEtaMin = null;
+    if (features.length > 1) {
+      const alt = features[1];
+      altLayer = L.geoJSON(alt, {
+        style: { color, weight: 2.5, opacity: 0.5, dashArray: '7 5', lineJoin: 'round' }
+      }).addTo(map);
+      const altSeg = computeSegmentETA(alt, subGroup, state.timeOfDay);
+      altEtaMin = altSeg?.etaMin ?? (alt.properties?.summary?.duration / 60 / (segResult?.avgFactor ?? 1.3));
+    }
+
+    try { map.fitBounds(primaryLayer.getBounds(), { padding: [50, 50], maxZoom: 14 }); } catch(_) {}
+
+    return {
+      layer:     primaryLayer,
+      altLayer,
+      etaMin:    segResult?.etaMin   ?? null,
+      distKm:    segResult?.distKm   ?? null,
+      avgFactor: segResult?.avgFactor ?? null,
+      altEtaMin
+    };
+
   } catch (_) {
-    // Fallback: straight line
+    // Fallback: straight line, no segment analysis
     const layer = L.polyline([[fromLat, fromLon],[toLat, toLon]], {
-      color, weight: 3, opacity: 0.7, dashArray: '8 5'
+      color, weight: 3, opacity: 0.6, dashArray: '8 5'
     }).addTo(map);
     try { map.fitBounds(layer.getBounds(), { padding: [50, 50] }); } catch(_) {}
-    return layer;
+    return { layer, altLayer: null, etaMin: null, distKm: null, avgFactor: null, altEtaMin: null };
   }
 }
 
 function clearAllRoutes() {
-  [...state.unitRoutes, ...state.hospRoutes].forEach(r => map.removeLayer(r.layer));
+  state.unitRoutes.forEach(r => { map.removeLayer(r.layer); if (r.altLayer) map.removeLayer(r.altLayer); });
+  state.hospRoutes.forEach(r => { map.removeLayer(r.layer); if (r.altLayer) map.removeLayer(r.altLayer); });
   state.unitRoutes = [];
   state.hospRoutes = [];
 }
@@ -679,10 +859,49 @@ function closeSidebarMobile() {
   overlay.classList.remove('visible');
 }
 
+// ===================== TIME-OF-DAY SLIDER =====================
+function initTodSlider() {
+  const slider    = document.getElementById('tod-slider');
+  const valueEl   = document.getElementById('tod-value');
+  const congEl    = document.getElementById('tod-congestion');
+  if (!slider) return;
+
+  // Initialise to current hour
+  const now = new Date().getHours();
+  slider.value     = now;
+  state.timeOfDay  = now;
+  updateTodDisplay(now, valueEl, congEl);
+
+  slider.addEventListener('input', () => {
+    const h = parseInt(slider.value);
+    state.timeOfDay = h;
+    updateTodDisplay(h, valueEl, congEl);
+    // If there's an active search, recalculate with new congestion
+    if (state.lastSearch) {
+      clearAllRoutes();
+      renderResults();
+    }
+  });
+}
+
+function updateTodDisplay(h, valueEl, congEl) {
+  valueEl.textContent = `${String(h).padStart(2,'0')}:00`;
+  const cf = CONGESTION_BY_HOUR[h];
+  if (cf < 0.88) {
+    congEl.textContent = `×${cf.toFixed(2)}`;
+    congEl.className   = 'tod-congestion peak';
+    congEl.title       = 'Hora de ponta — tráfego urbano lento';
+  } else {
+    congEl.textContent = '';
+    congEl.className   = 'tod-congestion';
+  }
+}
+
 // ===================== BOOT =====================
 window.addEventListener('DOMContentLoaded', () => {
   if (typeof ISOCHRONE_DATA === 'undefined') {
     window.ISOCHRONE_DATA = { aem_codu_centro: [], vmer_drc: [], hospitais: [] };
   }
+  initTodSlider();
   renderResults(); // show placeholder
 });
