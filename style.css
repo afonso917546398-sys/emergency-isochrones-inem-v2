@@ -373,11 +373,14 @@ html, body {
 
 /* Active route state */
 .result-row.route-active {
-  border-left-color: #505058;
-  background: rgba(255,255,255,0.03);
+  border-left-color: var(--route-color, #4a9fc4);
+  background: rgba(74,159,196,0.06);
 }
 .result-row.route-active:hover {
-  background: rgba(255,255,255,0.05);
+  background: rgba(74,159,196,0.10);
+}
+.result-row.route-active .result-name {
+  color: var(--route-color, #4a9fc4);
 }
 
 .result-dot {
@@ -767,21 +770,51 @@ html, body {
 }
 
 .pulse-icon {
-  width: 18px; height: 18px; position: relative;
+  width: 22px; height: 22px; position: relative;
 }
 .pulse-icon::before {
   content: '';
   position: absolute; inset: 0;
   border-radius: 50%;
-  background: rgba(160, 48, 48, 0.45);
+  background: rgba(160, 48, 48, 0.40);
   animation: pulse-ring 1.8s cubic-bezier(0.4,0,0.6,1) infinite;
 }
 .pulse-icon::after {
   content: '';
+  position: absolute; inset: 4px;
+  border-radius: 50%;
+  background: #b03030;
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+/* Highlighted variant when routes are active */
+.pulse-icon--hl::before {
+  background: rgba(160, 48, 48, 0.65);
+  animation: pulse-ring 1.2s cubic-bezier(0.4,0,0.6,1) infinite;
+}
+.pulse-icon--hl::after {
+  background: #e03030;
+  box-shadow: 0 0 8px rgba(224,48,48,0.7);
+}
+
+/* Origin marker for unit/hospital when route is active */
+.origin-icon {
+  width: 14px; height: 14px; position: relative;
+}
+.origin-icon::before {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: var(--oc, #4a9fc4);
+  opacity: 0.35;
+  animation: pulse-ring 2s cubic-bezier(0.4,0,0.6,1) infinite;
+}
+.origin-icon::after {
+  content: '';
   position: absolute; inset: 3px;
   border-radius: 50%;
-  background: #a03030;
-  animation: pulse-dot 1.8s ease-in-out infinite;
+  background: var(--oc, #4a9fc4);
+  border: 1.5px solid rgba(255,255,255,0.55);
+  box-shadow: 0 0 5px var(--oc, #4a9fc4);
 }
 
 /* =========================================

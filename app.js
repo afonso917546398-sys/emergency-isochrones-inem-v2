@@ -14,9 +14,9 @@ const MAP_ZOOM    = 8;
 // Flat emergency speed factor applied to ORS/grid durations (lights-and-sirens vs normal driving)
 const EMERGENCY_SPEED_FACTOR = 1.3;
 
-// Route palette: greyscale — units lighter, hospitals darker
-const UNIT_ROUTE_COLORS = ['#707078', '#888890', '#585860', '#989aa0', '#484850'];
-const HOSP_ROUTE_COLORS = ['#484850', '#585860', '#686870'];
+// Route palette: steel blue (units) + steel teal (hospitals) — distinguishable
+const UNIT_ROUTE_COLORS = ['#4a9fc4', '#2563a8', '#7dc8e2', '#1a4f8a', '#5bb8d4'];
+const HOSP_ROUTE_COLORS = ['#2e8b8b', '#4aabab', '#1f6565'];
 
 // ===================== SPEED TABLES =====================
 // ORS waycategory values → index mapping
@@ -97,11 +97,24 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
 // ===================== SEARCH PIN =====================
-function makeSearchIcon() {
+function makeSearchIcon(highlighted = false) {
   return L.divIcon({
-    html: `<div class="pulse-icon"></div>`,
-    className: '', iconSize: [18,18], iconAnchor: [9,9]
+    html: `<div class="pulse-icon${highlighted ? ' pulse-icon--hl' : ''}"></div>`,
+    className: '', iconSize: [22,22], iconAnchor: [11,11]
   });
+}
+
+function makeOriginIcon(color) {
+  return L.divIcon({
+    html: `<div class="origin-icon" style="--oc:${color}"></div>`,
+    className: '', iconSize: [14,14], iconAnchor: [7,7]
+  });
+}
+
+function updateSearchPin() {
+  if (!state.searchMarker) return;
+  const hasRoutes = state.unitRoutes.length + state.hospRoutes.length > 0;
+  state.searchMarker.setIcon(makeSearchIcon(hasRoutes));
 }
 
 // ===================== FILTER CONTROLS =====================
@@ -337,8 +350,10 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   const existIdx = routes.findIndex(r => r.name === name);
   if (existIdx >= 0) {
     map.removeLayer(routes[existIdx].layer);
-    if (routes[existIdx].altLayer) map.removeLayer(routes[existIdx].altLayer);
+    if (routes[existIdx].altLayer)    map.removeLayer(routes[existIdx].altLayer);
+    if (routes[existIdx].originMarker) map.removeLayer(routes[existIdx].originMarker);
     routes.splice(existIdx, 1);
+    updateSearchPin();
     return;
   }
 
@@ -346,7 +361,8 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   while (routes.length >= maxCount) {
     const oldest = routes.shift();
     map.removeLayer(oldest.layer);
-    if (oldest.altLayer) map.removeLayer(oldest.altLayer);
+    if (oldest.altLayer)    map.removeLayer(oldest.altLayer);
+    if (oldest.originMarker) map.removeLayer(oldest.originMarker);
   }
 
   // Assign color by current queue length
@@ -363,7 +379,9 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   const result = await fetchRoute(state.lastSearch.lat, state.lastSearch.lon, toLat, toLon, color, subGroup);
   hideStatus();
 
-  routes.push({ name, layer: result.layer, altLayer: result.altLayer || null, color });
+  const originMarker = L.marker([toLat, toLon], { icon: makeOriginIcon(color), zIndexOffset: 900 }).addTo(map);
+  routes.push({ name, layer: result.layer, altLayer: result.altLayer || null, color, originMarker });
+  updateSearchPin();
 
   // Refine ETA in sidebar if segment analysis differs meaningfully from Matrix estimate
   if (result.etaMin != null) {
@@ -522,10 +540,14 @@ async function fetchRoute(fromLat, fromLon, toLat, toLon, color, subGroup = 'aem
 }
 
 function clearAllRoutes() {
-  state.unitRoutes.forEach(r => { map.removeLayer(r.layer); if (r.altLayer) map.removeLayer(r.altLayer); });
-  state.hospRoutes.forEach(r => { map.removeLayer(r.layer); if (r.altLayer) map.removeLayer(r.altLayer); });
+  [...state.unitRoutes, ...state.hospRoutes].forEach(r => {
+    map.removeLayer(r.layer);
+    if (r.altLayer)     map.removeLayer(r.altLayer);
+    if (r.originMarker) map.removeLayer(r.originMarker);
+  });
   state.unitRoutes = [];
   state.hospRoutes = [];
+  updateSearchPin();
 }
 
 // ===================== ETA COMPUTATION =====================
