@@ -49,8 +49,8 @@ const CONGESTION_BY_HOUR = [
 
 // ===================== STATE =====================
 const state = {
-  timeFilter:  30,                        // active time cap (30 | 60 | 90)
-  typeFilters: new Set(['aem','siv','vmer']),
+  timeFilter:  60,                        // active time cap (30 | 60 | 90)
+  typeFilters: new Set(['siv','vmer']),
   timeOfDay:   new Date().getHours(),     // 0–23, controls congestion factor
   lastSearch:  null,                      // { lat, lon, label, allUnitETAs, allHospETAs }
   searchMarker: null,
@@ -528,25 +528,94 @@ function clearAllRoutes() {
 }
 
 // ===================== ETA COMPUTATION =====================
-async function computeAllETAs(destLat, destLon) {
-  // Primary: ORS Matrix for all units (road network, real distances)
-  let unitETAs = await computeORSETAs(destLat, destLon, allUnits);
 
-  // For any that fell back to estimate, try grid as secondary fallback
-  const needGrid = unitETAs.filter(u => u.source === 'estimate').map(u => u.name);
-  if (needGrid.length > 0 && typeof GRID_ETA_DATA !== 'undefined') {
-    const gridUnits = allUnits.filter(u => needGrid.includes(u.name));
-    const gridRes   = computeGridETAs(destLat, destLon, gridUnits);
-    unitETAs = unitETAs.map(u => {
-      if (u.source !== 'estimate') return u;
-      return gridRes.find(g => g.name === u.name) || u;
-    });
+/** Fetch with a hard timeout (ms). Throws on timeout or network error. */
+async function fetchWithTimeout(url, options, timeoutMs = 8000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { ...options, signal: ctrl.signal });
+    clearTimeout(timer);
+    return resp;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
   }
+}
 
+async function computeAllETAs(destLat, destLon) {
+  // 1. Grid ETAs — instant, synchronous, no network
+  let unitETAs = [];
+  if (typeof GRID_ETA_DATA !== 'undefined') {
+    unitETAs = computeGridETAs(destLat, destLon, allUnits);
+  }
+  // Seed missing units with straight-line estimate so UI can show something immediately
+  allUnits.forEach(u => {
+    if (!unitETAs.find(e => e.name === u.name)) {
+      unitETAs.push({ ...u, etaMin: estimateETA(destLat, destLon, u), distKm: haversineKm(destLat, destLon, u.lat, u.lon) * 1.45, source: 'estimate' });
+    }
+  });
   unitETAs.sort((a, b) => a.etaMin - b.etaMin);
 
-  const allHospETAs = await computeHospitalETAs(destLat, destLon);
-  return { allUnitETAs: unitETAs, allHospETAs };
+  // Seed hospital estimates immediately (haversine)
+  let allHospETAs = allHospitals
+    .map(h => ({ ...h, etaMin: estimateETA(destLat, destLon, h), distKm: haversineKm(destLat, destLon, h.lat, h.lon) * 1.45, source: 'estimate' }))
+    .sort((a, b) => a.etaMin - b.etaMin);
+
+  // Pick 3 main + 2 SUB by estimate for now
+  const hospChosen = [];
+  let mp = 0, sp = 0;
+  for (const h of allHospETAs) {
+    if (h.typeLabel !== 'SUB' && mp < 3) { hospChosen.push(h); mp++; }
+    else if (h.typeLabel === 'SUB' && sp < 2) { hospChosen.push(h); sp++; }
+    if (mp >= 3 && sp >= 2) break;
+  }
+  hospChosen.sort((a, b) => a.etaMin - b.etaMin);
+
+  // Render immediately with grid/estimate data — user sees results in < 1s
+  state.lastSearch.allUnitETAs = unitETAs;
+  state.lastSearch.allHospETAs = hospChosen;
+  renderResults();
+  showStatus('A refinar ETAs via ORS…');
+
+  // Stage 1: VMER + SIV + hospitals in parallel (faster — fewer units)
+  const stage1Units = allUnits.filter(u => u.subGroup !== 'aem');
+  const stage2Units = allUnits.filter(u => u.subGroup === 'aem');
+  const searchId = state.lastSearch;  // capture identity for stale-check
+
+  const [ors1, orsHosps] = await Promise.all([
+    computeORSETAs(destLat, destLon, stage1Units).catch(() => null),
+    computeHospitalETAs(destLat, destLon).catch(() => null)
+  ]);
+
+  // Merge Stage 1 ORS results
+  if (ors1) {
+    ors1.forEach(r => {
+      const idx = unitETAs.findIndex(e => e.name === r.name);
+      if (idx >= 0) unitETAs[idx] = r; else unitETAs.push(r);
+    });
+    unitETAs.sort((a, b) => a.etaMin - b.etaMin);
+  }
+  const finalHosps = orsHosps ?? hospChosen;
+  state.lastSearch.allUnitETAs = unitETAs;
+  state.lastSearch.allHospETAs = finalHosps;
+  renderResults();
+  hideStatus();
+
+  // Stage 2: AEM — fire and forget, merges into sidebar when done
+  computeORSETAs(destLat, destLon, stage2Units).then(ors2 => {
+    if (state.lastSearch !== searchId) return;  // user searched again — discard
+    if (!ors2) return;
+    ors2.forEach(r => {
+      const idx = state.lastSearch.allUnitETAs.findIndex(e => e.name === r.name);
+      if (idx >= 0) state.lastSearch.allUnitETAs[idx] = r;
+      else state.lastSearch.allUnitETAs.push(r);
+    });
+    state.lastSearch.allUnitETAs.sort((a, b) => a.etaMin - b.etaMin);
+    renderResults();
+  }).catch(() => {});
+
+  return { allUnitETAs: unitETAs, allHospETAs: finalHosps };
 }
 
 function computeGridETAs(destLat, destLon, units) {
@@ -590,7 +659,7 @@ async function computeORSETAs(destLat, destLon, units) {
     // sources = units, destination = search point → time FROM unit TO incident
     const locations    = [[destLon, destLat], ...units.map(u => [u.lon, u.lat])];
     const unitIndices  = units.map((_, i) => i + 1);
-    const resp = await fetch(`${ORS_BASE}/matrix/driving-car`, {
+    const resp = await fetchWithTimeout(`${ORS_BASE}/matrix/driving-car`, {
       method: 'POST',
       headers: { 'Authorization': ORS_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -599,7 +668,7 @@ async function computeORSETAs(destLat, destLon, units) {
         destinations: [0],           // search point is the destination
         metrics: ['duration', 'distance']
       })
-    });
+    }, 10000);
     if (!resp.ok) throw new Error('ORS matrix ' + resp.status);
     const data = await resp.json();
     // Response: durations[i][0] = duration from unit i to search point
@@ -634,7 +703,7 @@ async function computeHospitalETAs(destLat, destLon) {
     // sources = hospitals → destination = search point (time from hospital to incident)
     const locations    = [[destLon, destLat], ...candidates.map(h => [h.lon, h.lat])];
     const hospIndices  = candidates.map((_, i) => i + 1);
-    const resp = await fetch(`${ORS_BASE}/matrix/driving-car`, {
+    const resp = await fetchWithTimeout(`${ORS_BASE}/matrix/driving-car`, {
       method: 'POST',
       headers: { 'Authorization': ORS_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -643,7 +712,7 @@ async function computeHospitalETAs(destLat, destLon) {
         destinations: [0],
         metrics: ['duration', 'distance']
       })
-    });
+    }, 10000);
     if (resp.ok) {
       const data = await resp.json();
       candidates.forEach((h, i) => {
