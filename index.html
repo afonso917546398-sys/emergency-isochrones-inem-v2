@@ -3,14 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>INEM Centro — Tempos de Resposta de Emergência</title>
+  <title>INEM</title>
 
-  <!-- Fonts: JetBrains Mono for data; body uses system sans-serif -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -31,9 +29,9 @@
         </svg>
       </div>
       <div class="brand-text">
-        <span class="brand-title">INEM Centro</span>
-        <span class="brand-sub">Tempos de Resposta</span>
+        <span class="brand-title">INEM</span>
       </div>
+      <button id="about-btn" class="about-btn" title="Sobre a aplicação">?</button>
       <button id="hamburger-close" class="hamburger-close" aria-label="Fechar">
         <svg viewBox="0 0 24 24" fill="none">
           <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -48,7 +46,7 @@
           <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/>
           <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
-        <input id="search-input" type="text" placeholder="Rua, localidade, código postal..." autocomplete="off" />
+        <input id="search-input" type="text" placeholder="Rua, localidade, código postal…" autocomplete="off" />
         <button id="search-clear" class="search-clear" title="Limpar">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -60,30 +58,14 @@
 
     <!-- Filters -->
     <div class="filter-section">
-      <!-- Time filter (radio) -->
       <div class="filter-row">
-        <span class="filter-label">
-          <svg viewBox="0 0 24 24" fill="none" width="12" height="12">
-            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>
-            <path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          ETA máx.
-        </span>
         <div class="filter-btns">
           <button class="filter-time" data-time="30">≤30'</button>
           <button class="filter-time active" data-time="60">≤60'</button>
           <button class="filter-time" data-time="90">≤90'</button>
         </div>
       </div>
-      <!-- Unit type filters (toggle) -->
       <div class="filter-row">
-        <span class="filter-label">
-          <svg viewBox="0 0 24 24" fill="none" width="12" height="12">
-            <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
-            <path d="M9 9h6M9 12h6M9 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          Meios
-        </span>
         <div class="filter-btns">
           <button class="filter-type active" data-type="vmer" style="--type-color:#f59e0b">VMER</button>
           <button class="filter-type active" data-type="siv"  style="--type-color:#10b981">SIV</button>
@@ -92,20 +74,12 @@
       </div>
     </div>
 
-    <!-- Time-of-day slider (demo mode) -->
-    <div class="tod-bar" id="tod-bar">
-      <span class="tod-label">Hora</span>
-      <input type="range" id="tod-slider" min="0" max="23" step="1" value="12" class="tod-slider" />
-      <span class="tod-value" id="tod-value">12:00</span>
-      <span class="tod-congestion" id="tod-congestion"></span>
-    </div>
-
     <!-- Results panel -->
     <div id="results-panel" class="results-panel"></div>
 
     <!-- Footer -->
     <div class="sidebar-footer">
-      ETAs via OpenRouteService/OSM · perfil viário + factor veículo + hora
+      ORS/OSM · perfil viário + factor veículo + hora
     </div>
   </aside>
 
@@ -118,13 +92,72 @@
       </svg>
     </button>
 
-    <!-- Mini status chip (top-right) -->
     <div id="status-chip" class="status-chip hidden">
       <span id="status-text"></span>
     </div>
 
     <div id="map"></div>
   </main>
+
+  <!-- ===== ABOUT MODAL ===== -->
+  <div id="about-overlay" class="about-overlay hidden">
+    <div class="about-modal">
+      <button id="about-close" class="about-close" title="Fechar">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <h2 class="about-title">INEM · Tempos de Resposta · Centro</h2>
+
+      <section class="about-section">
+        <h3>Pesquisa</h3>
+        <ul>
+          <li>Código postal completo <span class="about-ex">3000-123</span> ou CP4 <span class="about-ex">3000</span></li>
+          <li>Morada, rua, localidade, concelho</li>
+          <li>Coordenadas GPS <span class="about-ex">40.205, -8.429</span></li>
+        </ul>
+      </section>
+
+      <section class="about-section">
+        <h3>Cálculo de ETAs</h3>
+        <ul>
+          <li><span class="about-badge">GRID</span> Interpolação sobre matriz OSRM pré-calculada — instantâneo, aprox. ±15%</li>
+          <li><span class="about-badge">ORS</span> Matriz de rede viária real via OpenRouteService — VMER+SIV primeiro, AEM a seguir</li>
+          <li><span class="about-badge">↺</span> Refinamento por segmento quando a rota é traçada — usa perfil de veículo + declive</li>
+        </ul>
+      </section>
+
+      <section class="about-section">
+        <h3>Velocidades de emergência</h3>
+        <table class="about-table">
+          <thead><tr><th></th><th>Auto-est.</th><th>Nacional</th><th>Secundária</th><th>Urbana</th><th>Pista</th></tr></thead>
+          <tbody>
+            <tr><td>VMER (car)</td><td>×1.50</td><td>×1.25</td><td>×1.18</td><td>×1.10</td><td>×1.00</td></tr>
+            <tr><td>AEM/SIV (van)</td><td>×1.20</td><td>×1.08</td><td>×1.05</td><td>×1.00</td><td>×0.90</td></tr>
+          </tbody>
+        </table>
+        <p class="about-note">Declive moderado ×0.88/×0.82 · Declive acentuado ×0.80/×0.72 · Hora de ponta urbana até ×0.82</p>
+      </section>
+
+      <section class="about-section">
+        <h3>Filtros</h3>
+        <ul>
+          <li>Tempo máximo de resposta: ≤30' / ≤60' / ≤90'</li>
+          <li>Tipo de meio: VMER · SIV · AEM (activado manualmente para AEM)</li>
+          <li>Rotas activas são sempre visíveis independentemente dos filtros</li>
+        </ul>
+      </section>
+
+      <section class="about-section">
+        <h3>Fontes</h3>
+        <ul>
+          <li>Bases INEM Centro (CODU) · Hospitais SNS Centro</li>
+          <li>Cartografia OSM · Roteamento OpenRouteService</li>
+          <li>Códigos postais CTT · Grid OSRM pré-calculada</li>
+        </ul>
+      </section>
+    </div>
+  </div>
 
   <script src="data.js"></script>
   <script src="postal_cp4.js"></script>

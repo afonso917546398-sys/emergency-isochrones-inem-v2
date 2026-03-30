@@ -830,3 +830,163 @@ html, body {
   .hamburger-close { display: flex; }
   .status-chip { right: 12px; left: 56px; text-align: center; }
 }
+
+/* =========================================
+   ABOUT BUTTON
+   ========================================= */
+.about-btn {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+  margin-right: 4px;
+}
+.about-btn:hover { color: var(--text); border-color: #404048; }
+
+/* =========================================
+   ABOUT MODAL
+   ========================================= */
+.about-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  z-index: 3000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.about-overlay.hidden { display: none; }
+
+.about-modal {
+  background: #0e0e10;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 22px 24px 24px;
+  position: relative;
+  font-family: var(--font-mono);
+}
+
+.about-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 24px; height: 24px;
+  background: transparent; border: none;
+  color: var(--text-muted);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.about-close:hover { color: var(--text); }
+.about-close svg { width: 14px; height: 14px; }
+
+.about-title {
+  font-size: 12px; font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.about-section {
+  margin-bottom: 16px;
+}
+.about-section h3 {
+  font-size: 9px; font-weight: 700;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.about-section ul {
+  list-style: none;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.about-section li {
+  font-size: 11px; color: var(--text-muted);
+  padding-left: 10px;
+  position: relative;
+}
+.about-section li::before {
+  content: '·';
+  position: absolute; left: 0;
+  color: var(--text-faint);
+}
+.about-ex {
+  color: #606880;
+  font-style: normal;
+}
+.about-badge {
+  display: inline-block;
+  font-size: 9px; font-weight: 700;
+  padding: 1px 4px;
+  border: 1px solid var(--border-light);
+  border-radius: 2px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+
+.about-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+.about-table th, .about-table td {
+  padding: 4px 6px;
+  text-align: center;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.about-table th { color: var(--text-faint); font-weight: 600; }
+.about-table td:first-child { text-align: left; color: var(--text); }
+
+.about-note {
+  font-size: 10px; color: var(--text-faint);
+  margin-top: 4px;
+}
+
+/* =========================================
+   SEARCH — KEYBOARD FOCUS
+   ========================================= */
+.search-result-item.keyboard-focus {
+  background: var(--surface-hover);
+  border-left: 2px solid #4a9fc4;
+}
+
+/* =========================================
+   PIN TOOLTIPS
+   ========================================= */
+.pin-tooltip {
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+  padding: 3px 7px !important;
+  border-radius: 3px !important;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pin-tooltip--dest {
+  background: rgba(12,12,14,0.92) !important;
+  border: 1px solid rgba(160,48,48,0.6) !important;
+  color: #e03030 !important;
+  box-shadow: 0 0 8px rgba(160,48,48,0.25) !important;
+}
+.pin-tooltip--origin {
+  background: rgba(12,12,14,0.92) !important;
+  border: 1px solid rgba(74,159,196,0.4) !important;
+  color: var(--tc, #4a9fc4) !important;
+  box-shadow: none !important;
+}
+/* Hide the default Leaflet tooltip arrow */
+.pin-tooltip::before { display: none !important; }

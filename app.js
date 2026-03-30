@@ -153,8 +153,9 @@ function cleanRoutesOutsideFilter() {
 // ===================== FILTER HELPERS =====================
 function getFilteredUnits() {
   if (!state.lastSearch) return [];
+  const activeNames = new Set(state.unitRoutes.map(r => r.name));
   return state.lastSearch.allUnitETAs.filter(u =>
-    state.typeFilters.has(u.subGroup) && u.etaMin <= state.timeFilter
+    activeNames.has(u.name) || (state.typeFilters.has(u.subGroup) && u.etaMin <= state.timeFilter)
   );
 }
 
@@ -379,7 +380,14 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   const result = await fetchRoute(state.lastSearch.lat, state.lastSearch.lon, toLat, toLon, color, subGroup);
   hideStatus();
 
-  const originMarker = L.marker([toLat, toLon], { icon: makeOriginIcon(color), zIndexOffset: 900 }).addTo(map);
+  const originMarker = L.marker([toLat, toLon], { icon: makeOriginIcon(color), zIndexOffset: 900 })
+    .bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -8], className: 'pin-tooltip pin-tooltip--origin' })
+    .addTo(map);
+  // Apply route color to tooltip after DOM is ready
+  requestAnimationFrame(() => {
+    const el = originMarker.getTooltip()?.getElement();
+    if (el) { el.style.color = color; el.style.borderColor = color + '66'; }
+  });
   routes.push({ name, layer: result.layer, altLayer: result.altLayer || null, color, originMarker });
   updateSearchPin();
 
@@ -795,18 +803,51 @@ const searchInput   = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 const searchClear   = document.getElementById('search-clear');
 let searchDebounce  = null;
+let searchFocusIdx  = -1;
+let searchResultsCache = [];
 
 searchInput.addEventListener('input', () => {
   const val = searchInput.value.trim();
   searchClear.classList.toggle('visible', val.length > 0);
   clearTimeout(searchDebounce);
+  searchFocusIdx = -1;
   if (val.length < 2) { hideSearchResults(); return; }
-  searchDebounce = setTimeout(() => doSearch(val), 280);
+  searchDebounce = setTimeout(() => doSearch(val), 220);
 });
 
 searchInput.addEventListener('keydown', e => {
-  if (e.key === 'Escape') clearSearch();
+  if (e.key === 'Escape') { clearSearch(); return; }
+  const items = searchResults.querySelectorAll('.search-result-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchFocusIdx = Math.min(searchFocusIdx + 1, items.length - 1);
+    updateSearchFocus(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchFocusIdx = Math.max(searchFocusIdx - 1, 0);
+    updateSearchFocus(items);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const idx = searchFocusIdx >= 0 ? searchFocusIdx : 0;
+    if (searchResultsCache[idx]) selectResult(searchResultsCache[idx]);
+  }
 });
+
+function updateSearchFocus(items) {
+  items.forEach((el, i) => el.classList.toggle('keyboard-focus', i === searchFocusIdx));
+  if (searchFocusIdx >= 0) items[searchFocusIdx].scrollIntoView({ block: 'nearest' });
+}
+
+// Simple fuzzy scorer: exact prefix > contains > character sequence
+function fuzzyScore(query, text) {
+  const q = query.toLowerCase(), t = text.toLowerCase();
+  if (t.startsWith(q)) return 3;
+  if (t.includes(q)) return 2;
+  let qi = 0;
+  for (let i = 0; i < t.length && qi < q.length; i++) { if (t[i] === q[qi]) qi++; }
+  return qi === q.length ? 1 : 0;
+}
 
 searchClear.addEventListener('click', clearSearch);
 
@@ -860,25 +901,38 @@ async function doSearch(query) {
     }
   }
 
-  // Free text → Photon geocoder
+  // Free text → Photon geocoder (fuzzy, no administrative)
   if (results.length < 3 && !cpMatch) {
     try {
-      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query + ' Portugal')}&limit=5&lang=pt`;
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query + ' Portugal')}&limit=8&lang=pt`;
       const data = await (await fetch(url)).json();
+      const SKIP_TYPES = new Set(['administrative','state','country','continent']);
+      const photonResults = [];
       (data.features || []).forEach(f => {
         const p = f.properties;
-        const name = [p.name, p.city||p.town||p.village, p.county, p.country].filter(Boolean).join(', ');
-        results.push({ label: name, sub: (p.postcode ? p.postcode + ' ' : '') + (p.country||''), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] });
+        if (SKIP_TYPES.has(p.type)) return;
+        const nameParts = [p.name, p.street, p.city||p.town||p.village, p.county].filter(Boolean);
+        const label = [...new Set(nameParts)].join(', ');
+        const sub   = [p.postcode, p.state].filter(Boolean).join(' · ') || 'Portugal';
+        const score = fuzzyScore(query, label);
+        if (score > 0 || photonResults.length < 3)
+          photonResults.push({ label, sub, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], score });
       });
+      photonResults.sort((a,b) => b.score - a.score);
+      results.push(...photonResults.slice(0, 5));
     } catch(_) {}
 
-    // Nominatim fallback
+    // Nominatim fallback (filter administrative/country/state)
     if (results.length === 0) {
       try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=pt&limit=5`;
+        const SKIP = new Set(['administrative','country','state','continent','region']);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=pt&limit=8&addressdetails=1`;
         const data = await (await fetch(url, { headers: { 'Accept-Language': 'pt' } })).json();
-        data.forEach(r => {
-          results.push({ label: r.display_name.split(',').slice(0,3).join(','), sub: r.type, lat: parseFloat(r.lat), lon: parseFloat(r.lon) });
+        data.filter(r => !SKIP.has(r.type)).forEach(r => {
+          const parts = r.display_name.split(',').map(s => s.trim());
+          const label = parts.slice(0, 3).join(', ');
+          const sub   = parts.slice(3, 5).filter(Boolean).join(', ');
+          results.push({ label, sub, lat: parseFloat(r.lat), lon: parseFloat(r.lon) });
         });
       } catch(_) {}
     }
@@ -888,17 +942,24 @@ async function doSearch(query) {
 }
 
 function renderSearchResults(results) {
+  searchFocusIdx = -1;
+  searchResultsCache = results;
   searchResults.innerHTML = '';
   if (results.length === 0) {
-    searchResults.innerHTML = '<div class="search-no-results">Nenhum resultado encontrado</div>';
+    searchResults.innerHTML = '<div class="search-no-results">Sem resultados</div>';
     searchResults.classList.add('visible');
     return;
   }
-  results.forEach(r => {
+  results.forEach((r, i) => {
     const item = document.createElement('div');
     item.className = 'search-result-item';
-    item.innerHTML = `<div class="search-result-main">${r.label}</div><div class="search-result-sub">${r.sub}</div>`;
+    item.dataset.idx = i;
+    item.innerHTML = `<div class="search-result-main">${r.label}</div>${r.sub ? `<div class="search-result-sub">${r.sub}</div>` : ''}`;
     item.addEventListener('click', () => selectResult(r));
+    item.addEventListener('mouseenter', () => {
+      searchFocusIdx = i;
+      updateSearchFocus(searchResults.querySelectorAll('.search-result-item'));
+    });
     searchResults.appendChild(item);
   });
   searchResults.classList.add('visible');
@@ -912,8 +973,10 @@ function selectResult(r) {
   if (state.searchMarker) map.removeLayer(state.searchMarker);
   clearAllRoutes();
 
-  // Place pin
-  state.searchMarker = L.marker([r.lat, r.lon], { icon: makeSearchIcon(), zIndexOffset: 1000 }).addTo(map);
+  // Place pin with tooltip
+  state.searchMarker = L.marker([r.lat, r.lon], { icon: makeSearchIcon(), zIndexOffset: 1000 })
+    .bindTooltip(r.label, { permanent: true, direction: 'top', offset: [0, -10], className: 'pin-tooltip pin-tooltip--dest' })
+    .addTo(map);
   map.flyTo([r.lat, r.lon], 12, { animate: true, duration: 0.6 });
 
   closeSidebarMobile();
@@ -946,42 +1009,23 @@ function closeSidebarMobile() {
   overlay.classList.remove('visible');
 }
 
-// ===================== TIME-OF-DAY SLIDER =====================
-function initTodSlider() {
-  const slider    = document.getElementById('tod-slider');
-  const valueEl   = document.getElementById('tod-value');
-  const congEl    = document.getElementById('tod-congestion');
-  if (!slider) return;
-
-  // Initialise to current hour
-  const now = new Date().getHours();
-  slider.value     = now;
-  state.timeOfDay  = now;
-  updateTodDisplay(now, valueEl, congEl);
-
-  slider.addEventListener('input', () => {
-    const h = parseInt(slider.value);
-    state.timeOfDay = h;
-    updateTodDisplay(h, valueEl, congEl);
-    // If there's an active search, recalculate with new congestion
-    if (state.lastSearch) {
-      clearAllRoutes();
-      renderResults();
-    }
-  });
+// ===================== TIME-OF-DAY (auto) =====================
+function initTimeOfDay() {
+  state.timeOfDay = new Date().getHours();
+  // Update every 5 minutes in case the hour rolls over during use
+  setInterval(() => { state.timeOfDay = new Date().getHours(); }, 5 * 60 * 1000);
 }
 
-function updateTodDisplay(h, valueEl, congEl) {
-  valueEl.textContent = `${String(h).padStart(2,'0')}:00`;
-  const cf = CONGESTION_BY_HOUR[h];
-  if (cf < 0.88) {
-    congEl.textContent = `×${cf.toFixed(2)}`;
-    congEl.className   = 'tod-congestion peak';
-    congEl.title       = 'Hora de ponta — tráfego urbano lento';
-  } else {
-    congEl.textContent = '';
-    congEl.className   = 'tod-congestion';
-  }
+// ===================== ABOUT MODAL =====================
+function initAbout() {
+  const overlay  = document.getElementById('about-overlay');
+  const openBtn  = document.getElementById('about-btn');
+  const closeBtn = document.getElementById('about-close');
+  if (!overlay) return;
+  openBtn.addEventListener('click',  () => overlay.classList.remove('hidden'));
+  closeBtn.addEventListener('click', () => overlay.classList.add('hidden'));
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.add('hidden'); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') overlay.classList.add('hidden'); });
 }
 
 // ===================== BOOT =====================
@@ -989,6 +1033,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (typeof ISOCHRONE_DATA === 'undefined') {
     window.ISOCHRONE_DATA = { aem_codu_centro: [], vmer_drc: [], hospitais: [] };
   }
-  initTodSlider();
+  initTimeOfDay();
+  initAbout();
   renderResults(); // show placeholder
 });
