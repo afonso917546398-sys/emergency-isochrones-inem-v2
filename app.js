@@ -11,6 +11,9 @@ const ORS_BASE    = 'https://api.openrouteservice.org/v2';
 const MAP_CENTER  = [40.15, -8.15];
 const MAP_ZOOM    = 8;
 
+// Flat emergency speed factor applied to ORS/grid durations (lights-and-sirens vs normal driving)
+const EMERGENCY_SPEED_FACTOR = 1.3;
+
 // Route palette: greyscale — units lighter, hospitals darker
 const UNIT_ROUTE_COLORS = ['#707078', '#888890', '#585860', '#989aa0', '#484850'];
 const HOSP_ROUTE_COLORS = ['#484850', '#585860', '#686870'];
