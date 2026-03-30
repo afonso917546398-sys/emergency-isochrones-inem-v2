@@ -11,10 +11,19 @@ const ORS_BASE    = 'https://api.openrouteservice.org/v2';
 const MAP_CENTER  = [40.15, -8.15];
 const MAP_ZOOM    = 8;
 
-// Speed factors applied to ORS base durations (civilian driving = 1.0)
-// > 1.0 → faster (lights+sirens);  < 1.0 → slower (patient transport)
-const EMERGENCY_SPEED_FACTOR = 1.30;  // units responding to incident
-const HOSPITAL_SPEED_FACTOR  = 0.85;  // transport to hospital — cautious, no sirens (~18% slower than ORS civilian)
+// Flat speed factors for Matrix/grid ETAs (civilian driving = 1.0)
+// These are weighted averages of the per-road-type profiles for typical PT road mix.
+// Segment-level profiles (SPEED_FACTORS) are used when a route is drawn.
+const SPEED_FACTOR_BY_TYPE = {
+  vmer:      1.30,  // light car, lights+sirens — avg of vmer profile on PT roads
+  siv:       1.07,  // SIV van, lights+sirens
+  aem:       1.07,  // AEM van, lights+sirens
+  hosp:      0.85,  // transport to hospital — cautious, no sirens
+  estimate:  1.10   // fallback when subGroup unknown
+};
+// Keep legacy name for grid/estimate callers that don't know subGroup
+const EMERGENCY_SPEED_FACTOR = 1.30;
+const HOSPITAL_SPEED_FACTOR  = 0.85;
 
 // Route palette: ATC phosphor green (units) + ATC amber (hospitals)
 const UNIT_ROUTE_COLORS = ['#00e676', '#1de9b6', '#69f0ae', '#00bfa5', '#b9f6ca'];
@@ -661,8 +670,8 @@ function computeGridETAs(destLat, destLon, units) {
     });
     if (sumW === 0) return;
 
-    const etaMin = (sumETA / sumW) / EMERGENCY_SPEED_FACTOR / 60;
-    // Grid has no road distance — apply typical road tortuosity factor for Portugal
+    const sf     = SPEED_FACTOR_BY_TYPE[unit.subGroup] ?? SPEED_FACTOR_BY_TYPE.estimate;
+    const etaMin = (sumETA / sumW) / sf / 60;
     const distKm = haversineKm(destLat, destLon, unit.lat, unit.lon) * 1.45;
     results.push({ ...unit, etaMin, distKm, source: 'grid' });
   });
@@ -692,8 +701,9 @@ async function computeORSETAs(destLat, destLon, units) {
     return units.map((u, i) => {
       const sec  = data.durations?.[i]?.[0]  ?? null;
       const dist = data.distances?.[i]?.[0]  ?? null;
-      const etaMin = sec  != null ? sec  / EMERGENCY_SPEED_FACTOR / 60          : estimateETA(destLat, destLon, u);
-      const distKm = dist != null ? dist / 1000                                  : haversineKm(destLat, destLon, u.lat, u.lon) * 1.45;
+      const sf   = SPEED_FACTOR_BY_TYPE[u.subGroup] ?? SPEED_FACTOR_BY_TYPE.estimate;
+      const etaMin = sec  != null ? sec  / sf / 60 : estimateETA(destLat, destLon, u, sf);
+      const distKm = dist != null ? dist / 1000    : haversineKm(destLat, destLon, u.lat, u.lon) * 1.45;
       return { ...u, etaMin, distKm, source: sec != null ? 'ors' : 'estimate' };
     });
   } catch (_) {
