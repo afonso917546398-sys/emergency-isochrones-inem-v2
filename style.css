@@ -4,22 +4,28 @@
    ========================================= */
 
 :root {
-  --bg: #0b0e14;
-  --surface: #12151c;
-  --surface-2: #181b24;
-  --surface-hover: #1e222d;
-  --border: #1e2230;
-  --border-light: #282d3c;
-  --text: #e4e6ed;
-  --text-muted: #7c8194;
-  --text-faint: #4a4f63;
-  --aem-color: #3b82f6;
-  --siv-color: #10b981;
-  --vmer-color: #f59e0b;
-  --hosp-color: #16a34a;
+  /* Night-work palette — high contrast, low brightness */
+  --bg:           #08090d;
+  --surface:      #0c0e14;
+  --surface-2:    #10131c;
+  --surface-hover:#141820;
+  --border:       #181c28;
+  --border-light: #1e2436;
+  --text:         #9aa2b8;   /* off-white — no glare */
+  --text-muted:   #4e566e;
+  --text-faint:   #2c3248;
+
+  /* Instrument-panel accent colours — desaturated, low luminance */
+  --aem-color:  #4878b0;   /* steel blue */
+  --siv-color:  #2e7a54;   /* forest green */
+  --vmer-color: #9a6e28;   /* brass amber */
+  --hosp-color: #256838;   /* dark green */
+
   --sidebar-w: 340px;
-  --font-body: 'DM Sans', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Classic system sans-serif — Arial/Helvetica family */
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -80,7 +86,7 @@ html, body {
 .brand-icon {
   width: 34px; height: 34px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #ef4444, #f97316);
+  background: linear-gradient(135deg, #7a1e1e, #7a3a10);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
@@ -130,7 +136,7 @@ html, body {
   transition: border-color 0.15s;
 }
 #search-input::placeholder { color: var(--text-faint); }
-#search-input:focus { border-color: var(--aem-color); }
+#search-input:focus { border-color: #3a6090; }
 
 .search-clear {
   position: absolute; right: 8px;
@@ -222,9 +228,9 @@ html, body {
 }
 .filter-time:hover { background: var(--surface-hover); color: var(--text); }
 .filter-time.active {
-  background: rgba(239,68,68,0.12);
-  border-color: #ef4444;
-  color: #ef4444;
+  background: rgba(160, 48, 48, 0.18);
+  border-color: #8c3030;
+  color: #b85050;
 }
 
 /* Type filter buttons — toggle style */
@@ -452,15 +458,15 @@ html, body {
 .result-route-btn svg { width: 14px; height: 14px; display: block; }
 
 /* Source quality indicators */
-.result-row.source-grid .result-eta { color: #f59e0b; }
+.result-row.source-grid .result-eta { color: #8a6420; }
 .result-row.source-grid .result-dist::after {
   content: ' ~';
-  color: #f59e0b;
+  color: #8a6420;
   font-weight: 700;
 }
-.result-row.source-estimate .result-eta { color: #ef4444; }
-.result-row.source-estimate .result-name { color: #ef4444; }
-.result-row.source-estimate .result-dist { color: #ef4444; opacity: 0.7; }
+.result-row.source-estimate .result-eta { color: #8c3030; }
+.result-row.source-estimate .result-name { color: #8c3030; }
+.result-row.source-estimate .result-dist { color: #8c3030; opacity: 0.7; }
 
 .source-badge {
   font-size: 9px;
@@ -472,14 +478,14 @@ html, body {
   align-self: center;
 }
 .source-badge--grid {
-  background: rgba(245,158,11,0.15);
-  color: #f59e0b;
-  border: 1px solid rgba(245,158,11,0.3);
+  background: rgba(138, 100, 32, 0.2);
+  color: #8a6420;
+  border: 1px solid rgba(138, 100, 32, 0.35);
 }
 .source-badge--estimate {
-  background: rgba(239,68,68,0.15);
-  color: #ef4444;
-  border: 1px solid rgba(239,68,68,0.3);
+  background: rgba(140, 48, 48, 0.2);
+  color: #8c3030;
+  border: 1px solid rgba(140, 48, 48, 0.35);
 }
 
 /* Recalculate button */
@@ -516,7 +522,7 @@ html, body {
 .recalc-btn:hover {
   background: var(--surface-hover);
   color: var(--text);
-  border-color: var(--aem-color);
+  border-color: #3a6090;
 }
 .recalc-btn svg { width: 13px; height: 13px; }
 .recalc-btn.loading { opacity: 0.6; pointer-events: none; }
@@ -650,12 +656,12 @@ html, body {
    ========================================= */
 
 @keyframes pulse-ring {
-  0%   { transform: scale(0.6); opacity: 0.9; }
+  0%   { transform: scale(0.6); opacity: 0.7; }
   100% { transform: scale(2.5); opacity: 0; }
 }
 @keyframes pulse-dot {
   0%, 100% { transform: scale(1); }
-  50%       { transform: scale(1.12); }
+  50%       { transform: scale(1.1); }
 }
 
 .pulse-icon {
@@ -665,15 +671,15 @@ html, body {
   content: '';
   position: absolute; inset: 0;
   border-radius: 50%;
-  background: rgba(239,68,68,0.4);
-  animation: pulse-ring 1.5s cubic-bezier(0.4,0,0.6,1) infinite;
+  background: rgba(160, 48, 48, 0.45);
+  animation: pulse-ring 1.8s cubic-bezier(0.4,0,0.6,1) infinite;
 }
 .pulse-icon::after {
   content: '';
   position: absolute; inset: 3px;
   border-radius: 50%;
-  background: #ef4444;
-  animation: pulse-dot 1.5s ease-in-out infinite;
+  background: #a03030;
+  animation: pulse-dot 1.8s ease-in-out infinite;
 }
 
 /* =========================================

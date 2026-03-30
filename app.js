@@ -12,9 +12,9 @@ const EMERGENCY_SPEED_FACTOR = 1.3;
 const MAP_CENTER  = [40.15, -8.15];
 const MAP_ZOOM    = 8;
 
-// Route palette: up to 5 blues for units, up to 3 greens for hospitals
-const UNIT_ROUTE_COLORS = ['#3b82f6', '#60a5fa', '#1d4ed8', '#93c5fd', '#2563eb'];
-const HOSP_ROUTE_COLORS = ['#16a34a', '#22c55e', '#4ade80'];
+// Route palette: up to 5 blues for units, up to 3 greens for hospitals (low-brightness)
+const UNIT_ROUTE_COLORS = ['#3a6898', '#4878b0', '#2a5080', '#5888b8', '#306090'];
+const HOSP_ROUTE_COLORS = ['#256838', '#2e7a46', '#388c54'];
 
 // ===================== STATE =====================
 const state = {
@@ -31,12 +31,12 @@ function parseUnits() {
   const units = [];
   (ISOCHRONE_DATA.aem_codu_centro || []).forEach(b => {
     if (b.name.startsWith('AE'))
-      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'aem',  typeLabel: 'AEM',  color: '#3b82f6' });
+      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'aem',  typeLabel: 'AEM',  color: '#4878b0' });
     else if (b.name.startsWith('SI'))
-      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'siv',  typeLabel: 'SIV',  color: '#10b981' });
+      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'siv',  typeLabel: 'SIV',  color: '#2e7a54' });
   });
   (ISOCHRONE_DATA.vmer_drc || []).forEach(b => {
-    units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'vmer', typeLabel: 'VMER', color: '#f59e0b' });
+    units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'vmer', typeLabel: 'VMER', color: '#9a6e28' });
   });
   return units;
 }
@@ -44,7 +44,7 @@ function parseUnits() {
 function parseHospitals() {
   return (ISOCHRONE_DATA.hospitais || []).map(h => ({
     name: h.name, lat: h.lat, lon: h.lon,
-    subGroup: 'hosp', typeLabel: h.type || 'SUB', color: '#16a34a'
+    subGroup: 'hosp', typeLabel: h.type || 'SUB', color: '#256838'
   }));
 }
 
@@ -191,8 +191,8 @@ function renderResults() {
   hospitals.forEach(h => {
     const mins = Math.round(h.etaMin);
     const km   = h.distKm ? h.distKm.toFixed(1) : '—';
-    const typeColors = { SUP: '#16a34a', SUMC: '#22c55e', SUB: '#4ade80' };
-    const col = typeColors[h.typeLabel] || '#16a34a';
+    const typeColors = { SUP: '#256838', SUMC: '#2e7a46', SUB: '#387050' };
+    const col = typeColors[h.typeLabel] || '#256838';
     const activeRoute = state.hospRoutes.find(r => r.name === h.name);
     const routeColor  = activeRoute ? activeRoute.color : '';
     html += resultRowHTML(h.name, h.typeLabel, col, mins, km, 'hosp', !!activeRoute, routeColor, h.lat, h.lon, true, h.source);
