@@ -264,20 +264,14 @@ function renderResults() {
       recalcBtn.textContent = 'A calcular…';
 
       clearAllRoutes();
-      document.getElementById('results-panel').innerHTML = `
-        <div class="results-computing">
-          <div class="spinner"></div>
-          A recalcular ETAs via ORS…
-        </div>`;
-      showStatus('A recalcular…');
+      showStatus('A recalcular via ORS…');
 
-      const { allUnitETAs, allHospETAs } = await computeAllETAs(state.lastSearch.lat, state.lastSearch.lon);
+      const { allUnitETAs, allHospETAs } = computeInstantETAs(state.lastSearch.lat, state.lastSearch.lon);
       state.lastSearch.allUnitETAs = allUnitETAs;
       state.lastSearch.allHospETAs = allHospETAs;
-
-      const filtered = allUnitETAs.filter(u => state.typeFilters.has(u.subGroup) && u.etaMin <= state.timeFilter);
-      showStatus(`${filtered.length} meios · ${allHospETAs.length} hospitais`);
       renderResults();
+
+      refineWithORS(state.lastSearch.lat, state.lastSearch.lon);
     });
   }
 }
@@ -546,26 +540,36 @@ async function fetchWithTimeout(url, options, timeoutMs = 8000) {
   }
 }
 
-async function computeAllETAs(destLat, destLon) {
-  // 1. Grid ETAs — instant, synchronous, no network
+function computeInstantETAs(destLat, destLon) {
+  // Grid ETAs — synchronous, no network, instant
   let unitETAs = [];
   if (typeof GRID_ETA_DATA !== 'undefined') {
     unitETAs = computeGridETAs(destLat, destLon, allUnits);
   }
-  // Seed missing units with straight-line estimate so UI can show something immediately
+  // Seed any units missing from grid with straight-line estimate
   allUnits.forEach(u => {
     if (!unitETAs.find(e => e.name === u.name)) {
-      unitETAs.push({ ...u, etaMin: estimateETA(destLat, destLon, u), distKm: haversineKm(destLat, destLon, u.lat, u.lon) * 1.45, source: 'estimate' });
+      unitETAs.push({
+        ...u,
+        etaMin: estimateETA(destLat, destLon, u),
+        distKm: haversineKm(destLat, destLon, u.lat, u.lon) * 1.45,
+        source: 'estimate'
+      });
     }
   });
   unitETAs.sort((a, b) => a.etaMin - b.etaMin);
 
-  // Seed hospital estimates immediately (haversine)
-  let allHospETAs = allHospitals
-    .map(h => ({ ...h, etaMin: estimateETA(destLat, destLon, h), distKm: haversineKm(destLat, destLon, h.lat, h.lon) * 1.45, source: 'estimate' }))
+  // Hospital estimates (haversine)
+  const allHospETAs = allHospitals
+    .map(h => ({
+      ...h,
+      etaMin: estimateETA(destLat, destLon, h),
+      distKm: haversineKm(destLat, destLon, h.lat, h.lon) * 1.45,
+      source: 'estimate'
+    }))
     .sort((a, b) => a.etaMin - b.etaMin);
 
-  // Pick 3 main + 2 SUB by estimate for now
+  // Pick 3 main + 2 SUB hospitals
   const hospChosen = [];
   let mp = 0, sp = 0;
   for (const h of allHospETAs) {
@@ -575,50 +579,42 @@ async function computeAllETAs(destLat, destLon) {
   }
   hospChosen.sort((a, b) => a.etaMin - b.etaMin);
 
-  // Render immediately with grid/estimate data — user sees results in < 1s
-  state.lastSearch.allUnitETAs = unitETAs;
-  state.lastSearch.allHospETAs = hospChosen;
-  renderResults();
-  showStatus('A refinar ETAs via ORS…');
+  return { allUnitETAs: unitETAs, allHospETAs: hospChosen };
+}
 
-  // Stage 1: VMER + SIV + hospitals in parallel (faster — fewer units)
+function refineWithORS(destLat, destLon) {
+  // Stage 1: VMER + SIV in background
+  const searchId    = state.lastSearch;
   const stage1Units = allUnits.filter(u => u.subGroup !== 'aem');
   const stage2Units = allUnits.filter(u => u.subGroup === 'aem');
-  const searchId = state.lastSearch;  // capture identity for stale-check
 
-  const [ors1, orsHosps] = await Promise.all([
+  Promise.all([
     computeORSETAs(destLat, destLon, stage1Units).catch(() => null),
     computeHospitalETAs(destLat, destLon).catch(() => null)
-  ]);
-
-  // Merge Stage 1 ORS results
-  if (ors1) {
-    ors1.forEach(r => {
-      const idx = unitETAs.findIndex(e => e.name === r.name);
-      if (idx >= 0) unitETAs[idx] = r; else unitETAs.push(r);
-    });
-    unitETAs.sort((a, b) => a.etaMin - b.etaMin);
-  }
-  const finalHosps = orsHosps ?? hospChosen;
-  state.lastSearch.allUnitETAs = unitETAs;
-  state.lastSearch.allHospETAs = finalHosps;
-  renderResults();
-  hideStatus();
-
-  // Stage 2: AEM — fire and forget, merges into sidebar when done
-  computeORSETAs(destLat, destLon, stage2Units).then(ors2 => {
-    if (state.lastSearch !== searchId) return;  // user searched again — discard
-    if (!ors2) return;
-    ors2.forEach(r => {
-      const idx = state.lastSearch.allUnitETAs.findIndex(e => e.name === r.name);
-      if (idx >= 0) state.lastSearch.allUnitETAs[idx] = r;
-      else state.lastSearch.allUnitETAs.push(r);
-    });
-    state.lastSearch.allUnitETAs.sort((a, b) => a.etaMin - b.etaMin);
+  ]).then(([ors1, orsHosps]) => {
+    if (state.lastSearch !== searchId) return;
+    if (ors1) {
+      ors1.forEach(r => {
+        const idx = state.lastSearch.allUnitETAs.findIndex(e => e.name === r.name);
+        if (idx >= 0) state.lastSearch.allUnitETAs[idx] = r; else state.lastSearch.allUnitETAs.push(r);
+      });
+      state.lastSearch.allUnitETAs.sort((a, b) => a.etaMin - b.etaMin);
+    }
+    if (orsHosps) state.lastSearch.allHospETAs = orsHosps;
     renderResults();
-  }).catch(() => {});
+    hideStatus();
 
-  return { allUnitETAs: unitETAs, allHospETAs: finalHosps };
+    // Stage 2: AEM
+    computeORSETAs(destLat, destLon, stage2Units).then(ors2 => {
+      if (state.lastSearch !== searchId || !ors2) return;
+      ors2.forEach(r => {
+        const idx = state.lastSearch.allUnitETAs.findIndex(e => e.name === r.name);
+        if (idx >= 0) state.lastSearch.allUnitETAs[idx] = r; else state.lastSearch.allUnitETAs.push(r);
+      });
+      state.lastSearch.allUnitETAs.sort((a, b) => a.etaMin - b.etaMin);
+      renderResults();
+    }).catch(() => {});
+  }).catch(() => { if (state.lastSearch === searchId) hideStatus(); });
 }
 
 function computeGridETAs(destLat, destLon, units) {
@@ -881,7 +877,7 @@ function renderSearchResults(results) {
   searchResults.classList.add('visible');
 }
 
-async function selectResult(r) {
+function selectResult(r) {
   hideSearchResults();
   searchInput.value = r.label;
 
@@ -889,33 +885,22 @@ async function selectResult(r) {
   if (state.searchMarker) map.removeLayer(state.searchMarker);
   clearAllRoutes();
 
-  // Initialise lastSearch early so computeAllETAs can write into it during the instant render
-  state.lastSearch = { lat: r.lat, lon: r.lon, label: r.label, allUnitETAs: [], allHospETAs: [] };
-
   // Place pin
   state.searchMarker = L.marker([r.lat, r.lon], { icon: makeSearchIcon(), zIndexOffset: 1000 }).addTo(map);
   map.flyTo([r.lat, r.lon], 12, { animate: true, duration: 0.6 });
 
-  // Show computing state in sidebar
-  document.getElementById('results-panel').innerHTML = `
-    <div class="results-computing">
-      <div class="spinner"></div>
-      A calcular ETAs para ${allUnits.length} meios…
-    </div>`;
-  showStatus('A calcular ETAs…');
-
   closeSidebarMobile();
 
-  const { allUnitETAs, allHospETAs } = await computeAllETAs(r.lat, r.lon);
+  // Instant results — grid/estimate, no network, synchronous
+  const { allUnitETAs, allHospETAs } = computeInstantETAs(r.lat, r.lon);
+  state.lastSearch = { lat: r.lat, lon: r.lon, label: r.label, allUnitETAs, allHospETAs };
 
-  state.lastSearch.allUnitETAs = allUnitETAs;
-  state.lastSearch.allHospETAs = allHospETAs;
-
-  // Status chip summary
   const filtered = getFilteredUnits();
-  showStatus(`${filtered.length} meios · ${allHospETAs.length} hospitais`);
-
+  showStatus(`${filtered.length} meios · ${allHospETAs.length} hospitais — a refinar…`);
   renderResults();
+
+  // ORS refinement fires in background — never blocks render
+  refineWithORS(r.lat, r.lon);
 }
 
 // ===================== MOBILE SIDEBAR =====================
