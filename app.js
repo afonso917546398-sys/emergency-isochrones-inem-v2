@@ -14,9 +14,9 @@ const MAP_ZOOM    = 8;
 // Flat emergency speed factor applied to ORS/grid durations (lights-and-sirens vs normal driving)
 const EMERGENCY_SPEED_FACTOR = 1.3;
 
-// Route palette: steel blue (units) + steel teal (hospitals) — distinguishable
-const UNIT_ROUTE_COLORS = ['#4a9fc4', '#2563a8', '#7dc8e2', '#1a4f8a', '#5bb8d4'];
-const HOSP_ROUTE_COLORS = ['#2e8b8b', '#4aabab', '#1f6565'];
+// Route palette: ATC phosphor green (units) + ATC amber (hospitals)
+const UNIT_ROUTE_COLORS = ['#00e676', '#1de9b6', '#69f0ae', '#00bfa5', '#b9f6ca'];
+const HOSP_ROUTE_COLORS = ['#ffc400', '#ff9100', '#ffab00'];
 
 // ===================== SPEED TABLES =====================
 // ORS waycategory values → index mapping
@@ -66,12 +66,12 @@ function parseUnits() {
   const units = [];
   (ISOCHRONE_DATA.aem_codu_centro || []).forEach(b => {
     if (b.name.startsWith('AE'))
-      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'aem',  typeLabel: 'AEM',  color: '#a0a2a8' });
+      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'aem',  typeLabel: 'AEM',  color: '#69f0ae' });
     else if (b.name.startsWith('SI'))
-      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'siv',  typeLabel: 'SIV',  color: '#787a80' });
+      units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'siv',  typeLabel: 'SIV',  color: '#1de9b6' });
   });
   (ISOCHRONE_DATA.vmer_drc || []).forEach(b => {
-    units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'vmer', typeLabel: 'VMER', color: '#909298' });
+    units.push({ name: b.name, lat: b.lat, lon: b.lon, subGroup: 'vmer', typeLabel: 'VMER', color: '#00e676' });
   });
   return units;
 }
@@ -79,7 +79,7 @@ function parseUnits() {
 function parseHospitals() {
   return (ISOCHRONE_DATA.hospitais || []).map(h => ({
     name: h.name, lat: h.lat, lon: h.lon,
-    subGroup: 'hosp', typeLabel: h.type || 'SUB', color: '#686a70'
+    subGroup: 'hosp', typeLabel: h.type || 'SUB', color: '#ffc400'
   }));
 }
 
@@ -229,7 +229,7 @@ function renderResults() {
       const km   = u.distKm ? u.distKm.toFixed(1) : '—';
       const activeRoute = state.unitRoutes.find(r => r.name === u.name);
       const routeColor  = activeRoute ? activeRoute.color : '';
-      html += resultRowHTML(u.name, u.typeLabel, u.color, mins, km, 'unit', !!activeRoute, routeColor, u.lat, u.lon, false, u.source, u.altEtaMin ?? null, u.avgFactor ?? null);
+      html += resultRowHTML(u.name, u.typeLabel, u.color, mins, km, 'unit', !!activeRoute, routeColor, u.lat, u.lon, false, u.source, u.avgFactor ?? null);
     });
   }
   html += '</div>';
@@ -244,11 +244,11 @@ function renderResults() {
   hospitals.forEach(h => {
     const mins = Math.round(h.etaMin);
     const km   = h.distKm ? h.distKm.toFixed(1) : '—';
-    const typeColors = { SUP: '#808288', SUMC: '#686a70', SUB: '#585a60' };
+    const typeColors = { SUP: '#ffc400', SUMC: '#ffab00', SUB: '#ff9100' };
     const col = typeColors[h.typeLabel] || '#686a70';
     const activeRoute = state.hospRoutes.find(r => r.name === h.name);
     const routeColor  = activeRoute ? activeRoute.color : '';
-    html += resultRowHTML(h.name, h.typeLabel, col, mins, km, 'hosp', !!activeRoute, routeColor, h.lat, h.lon, true, h.source, h.altEtaMin ?? null, h.avgFactor ?? null);
+    html += resultRowHTML(h.name, h.typeLabel, col, mins, km, 'hosp', !!activeRoute, routeColor, h.lat, h.lon, true, h.source, h.avgFactor ?? null);
   });
   html += '</div>';
 
@@ -294,7 +294,7 @@ function renderResults() {
   }
 }
 
-function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeColor, lat, lon, isHosp = false, source = 'ors', altEtaMin = null, avgFactor = null) {
+function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeColor, lat, lon, isHosp = false, source = 'ors', avgFactor = null) {
   const activeStyle  = isActive ? `style="--route-color:${routeColor}"` : '';
   const activeClass  = isActive ? 'route-active' : '';
   const hospClass    = isHosp   ? ' hosp-row'    : '';
@@ -309,9 +309,6 @@ function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeC
     : '';
 
   const distLabel = source === 'estimate' ? `~${km} km` : `${km} km`;
-  const altBadge  = (altEtaMin != null && isActive)
-    ? `<span class="alt-eta-badge" title="Rota alternativa">(alt ${Math.round(altEtaMin)}')</span>`
-    : '';
 
   const tooltip = avgFactor
     ? `title="Fator emergência médio: ×${avgFactor} · ${typeLabel}"`
@@ -325,7 +322,7 @@ function resultRowHTML(name, typeLabel, color, mins, km, rtype, isActive, routeC
       ${sourceBadge}
     </div>
     <div class="result-meta">
-      <span class="result-eta">${mins}'${altBadge}</span>
+      <span class="result-eta">${mins}'</span>
       <span class="result-dist">${distLabel}</span>
     </div>
     <button class="result-route-btn ${isActive ? 'active' : ''}"
@@ -351,7 +348,6 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   const existIdx = routes.findIndex(r => r.name === name);
   if (existIdx >= 0) {
     map.removeLayer(routes[existIdx].layer);
-    if (routes[existIdx].altLayer)    map.removeLayer(routes[existIdx].altLayer);
     if (routes[existIdx].originMarker) map.removeLayer(routes[existIdx].originMarker);
     routes.splice(existIdx, 1);
     updateSearchPin();
@@ -362,7 +358,6 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
   while (routes.length >= maxCount) {
     const oldest = routes.shift();
     map.removeLayer(oldest.layer);
-    if (oldest.altLayer)    map.removeLayer(oldest.altLayer);
     if (oldest.originMarker) map.removeLayer(oldest.originMarker);
   }
 
@@ -388,7 +383,7 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
     const el = originMarker.getTooltip()?.getElement();
     if (el) { el.style.color = color; el.style.borderColor = color + '66'; }
   });
-  routes.push({ name, layer: result.layer, altLayer: result.altLayer || null, color, originMarker });
+  routes.push({ name, layer: result.layer, color, originMarker });
   updateSearchPin();
 
   // Refine ETA in sidebar if segment analysis differs meaningfully from Matrix estimate
@@ -398,15 +393,11 @@ async function handleRouteToggle(name, rtype, toLat, toLon) {
     if (entry) {
       const delta = Math.abs(result.etaMin - entry.etaMin) / entry.etaMin;
       if (delta > 0.04) {  // >4% difference → update
-        entry.etaMin      = result.etaMin;
-        entry.distKm      = result.distKm ?? entry.distKm;
-        entry.avgFactor   = result.avgFactor;
-        entry.altEtaMin   = result.altEtaMin;
-        entry.source      = 'ors-refined';
+        entry.etaMin    = result.etaMin;
+        entry.distKm    = result.distKm ?? entry.distKm;
+        entry.avgFactor = result.avgFactor;
+        entry.source    = 'ors-refined';
         renderResults();
-      } else {
-        // Still store alt ETA even if primary didn't change much
-        if (result.altEtaMin != null) { entry.altEtaMin = result.altEtaMin; renderResults(); }
       }
     }
   }
@@ -490,10 +481,9 @@ function computeSegmentETA(feature, subGroup, hour) {
 async function fetchRoute(fromLat, fromLon, toLat, toLon, color, subGroup = 'aem') {
   try {
     const body = {
-      coordinates:       [[fromLon, fromLat], [toLon, toLat]],
-      preference:        'fastest',
-      extra_info:        ['steepness', 'waycategory'],
-      alternative_routes: { target_count: 2, share_factor: 0.6, weight_factor: 1.6 }
+      coordinates: [[fromLon, fromLat], [toLon, toLat]],
+      preference:  'fastest',
+      extra_info:  ['steepness', 'waycategory']
     };
 
     const resp = await fetch(`${ORS_BASE}/directions/driving-car/geojson`, {
@@ -507,50 +497,33 @@ async function fetchRoute(fromLat, fromLon, toLat, toLon, color, subGroup = 'aem
     const features = gj.features || [];
     if (features.length === 0) throw new Error('No features');
 
-    // Primary route
     const primary = features[0];
-    const primaryLayer = L.geoJSON(primary, {
-      style: { color, weight: 4, opacity: 0.9, lineJoin: 'round' }
+    const layer = L.geoJSON(primary, {
+      style: { color, weight: 4, opacity: 0.92, lineJoin: 'round' }
     }).addTo(map);
 
     const segResult = computeSegmentETA(primary, subGroup, state.timeOfDay);
-
-    // Alternative route (if present)
-    let altLayer = null, altEtaMin = null;
-    if (features.length > 1) {
-      const alt = features[1];
-      altLayer = L.geoJSON(alt, {
-        style: { color, weight: 2.5, opacity: 0.5, dashArray: '7 5', lineJoin: 'round' }
-      }).addTo(map);
-      const altSeg = computeSegmentETA(alt, subGroup, state.timeOfDay);
-      altEtaMin = altSeg?.etaMin ?? (alt.properties?.summary?.duration / 60 / (segResult?.avgFactor ?? 1.3));
-    }
-
-    try { map.fitBounds(primaryLayer.getBounds(), { padding: [50, 50], maxZoom: 14 }); } catch(_) {}
+    try { map.fitBounds(layer.getBounds(), { padding: [50, 50], maxZoom: 14 }); } catch(_) {}
 
     return {
-      layer:     primaryLayer,
-      altLayer,
+      layer,
       etaMin:    segResult?.etaMin   ?? null,
       distKm:    segResult?.distKm   ?? null,
-      avgFactor: segResult?.avgFactor ?? null,
-      altEtaMin
+      avgFactor: segResult?.avgFactor ?? null
     };
 
   } catch (_) {
-    // Fallback: straight line, no segment analysis
     const layer = L.polyline([[fromLat, fromLon],[toLat, toLon]], {
       color, weight: 3, opacity: 0.6, dashArray: '8 5'
     }).addTo(map);
     try { map.fitBounds(layer.getBounds(), { padding: [50, 50] }); } catch(_) {}
-    return { layer, altLayer: null, etaMin: null, distKm: null, avgFactor: null, altEtaMin: null };
+    return { layer, etaMin: null, distKm: null, avgFactor: null };
   }
 }
 
 function clearAllRoutes() {
   [...state.unitRoutes, ...state.hospRoutes].forEach(r => {
     map.removeLayer(r.layer);
-    if (r.altLayer)     map.removeLayer(r.altLayer);
     if (r.originMarker) map.removeLayer(r.originMarker);
   });
   state.unitRoutes = [];

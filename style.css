@@ -15,11 +15,11 @@
   --text-muted:   #606268;
   --text-faint:   #353840;
 
-  /* Unit colours — shades of grey only */
-  --aem-color:  #a0a2a8;   /* light grey */
-  --siv-color:  #787a80;   /* medium grey */
-  --vmer-color: #909298;   /* mid-light grey */
-  --hosp-color: #686a70;   /* mid-dark grey */
+  /* Unit colours — ATC phosphor green / amber */
+  --aem-color:  #69f0ae;   /* phosphor green (AEM) */
+  --siv-color:  #1de9b6;   /* teal-green (SIV) */
+  --vmer-color: #00e676;   /* bright phosphor (VMER) */
+  --hosp-color: #ffc400;   /* ATC amber (hospital) */
 
   --sidebar-w: 340px;
 
