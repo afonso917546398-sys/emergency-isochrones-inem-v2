@@ -885,7 +885,9 @@ async function selectResult(r) {
   // Clear previous
   if (state.searchMarker) map.removeLayer(state.searchMarker);
   clearAllRoutes();
-  state.lastSearch = null;
+
+  // Initialise lastSearch early so computeAllETAs can write into it during the instant render
+  state.lastSearch = { lat: r.lat, lon: r.lon, label: r.label, allUnitETAs: [], allHospETAs: [] };
 
   // Place pin
   state.searchMarker = L.marker([r.lat, r.lon], { icon: makeSearchIcon(), zIndexOffset: 1000 }).addTo(map);
@@ -903,7 +905,8 @@ async function selectResult(r) {
 
   const { allUnitETAs, allHospETAs } = await computeAllETAs(r.lat, r.lon);
 
-  state.lastSearch = { lat: r.lat, lon: r.lon, label: r.label, allUnitETAs, allHospETAs };
+  state.lastSearch.allUnitETAs = allUnitETAs;
+  state.lastSearch.allHospETAs = allHospETAs;
 
   // Status chip summary
   const filtered = getFilteredUnits();
