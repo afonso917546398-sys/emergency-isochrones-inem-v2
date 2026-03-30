@@ -171,14 +171,18 @@ function renderResults() {
   const filtered = getFilteredUnits();
   const hospitals = state.lastSearch.allHospETAs;
 
-  // Count fallback sources across all results
-  const allResults = [...state.lastSearch.allUnitETAs, ...hospitals];
-  const nEstimate  = allResults.filter(r => r.source === 'estimate').length;
-  const nGrid      = allResults.filter(r => r.source === 'grid').length;
+  // Source summary across all results
+  const allResults  = [...state.lastSearch.allUnitETAs, ...hospitals];
+  const nORS        = allResults.filter(r => r.source === 'ors' || r.source === 'ors-refined').length;
+  const nGrid       = allResults.filter(r => r.source === 'grid').length;
+  const nEstimate   = allResults.filter(r => r.source === 'estimate').length;
+  const total       = allResults.length;
 
   let sourceSummary = '';
-  if (nEstimate > 0) sourceSummary = `<span style="color:#ef4444">${nEstimate} estimado${nEstimate > 1 ? 's' : ''}</span>`;
-  else if (nGrid > 0) sourceSummary = `<span style="color:#f59e0b">${nGrid} aprox.</span>`;
+  if (nORS === total)        sourceSummary = `<span style="color:#6b7280">ORS · rede viária</span>`;
+  else if (nORS > 0)         sourceSummary = `<span style="color:#6b7280">${nORS} ORS</span> <span style="color:#9ca3af">+ ${total - nORS} aprox.</span>`;
+  else if (nEstimate === total) sourceSummary = `<span style="color:#888">GRID/EST · a refinar…</span>`;
+  else if (nGrid > 0)        sourceSummary = `<span style="color:#9ca3af">GRID · a refinar…</span>`;
 
   let html = '';
 
@@ -601,19 +605,20 @@ function refineWithORS(destLat, destLon) {
       state.lastSearch.allUnitETAs.sort((a, b) => a.etaMin - b.etaMin);
     }
     if (orsHosps) state.lastSearch.allHospETAs = orsHosps;
+    showStatus('VMER+SIV · ORS ✓ — AEM a carregar…');
     renderResults();
-    hideStatus();
 
     // Stage 2: AEM
     computeORSETAs(destLat, destLon, stage2Units).then(ors2 => {
-      if (state.lastSearch !== searchId || !ors2) return;
+      if (state.lastSearch !== searchId || !ors2) { hideStatus(); return; }
       ors2.forEach(r => {
         const idx = state.lastSearch.allUnitETAs.findIndex(e => e.name === r.name);
         if (idx >= 0) state.lastSearch.allUnitETAs[idx] = r; else state.lastSearch.allUnitETAs.push(r);
       });
       state.lastSearch.allUnitETAs.sort((a, b) => a.etaMin - b.etaMin);
       renderResults();
-    }).catch(() => {});
+      hideStatus();
+    }).catch(() => { hideStatus(); });
   }).catch(() => { if (state.lastSearch === searchId) hideStatus(); });
 }
 
