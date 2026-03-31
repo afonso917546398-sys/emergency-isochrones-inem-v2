@@ -110,42 +110,63 @@
       <h2 class="about-title">INEM · Tempos de Resposta · Centro</h2>
 
       <section class="about-section">
-        <h3>Pesquisa</h3>
-        <ul>
-          <li>Código postal completo <span class="about-ex">3000-123</span> ou CP4 <span class="about-ex">3000</span></li>
-          <li>Morada, rua, localidade, concelho</li>
-          <li>Coordenadas GPS <span class="about-ex">40.205, -8.429</span></li>
-        </ul>
+        <h3>Como funciona</h3>
+        <p class="about-note">Pesquisa uma morada ou localidade. A app calcula o ETA de cada meio ao ponto pesquisado em três etapas de precisão crescente.</p>
       </section>
 
       <section class="about-section">
-        <h3>Cálculo de ETAs</h3>
-        <ul>
-          <li><span class="about-badge">GRID</span> Interpolação sobre matriz OSRM pré-calculada — instantâneo, aprox. ±15%</li>
-          <li><span class="about-badge">ORS</span> Matriz de rede viária real via OpenRouteService — VMER+SIV primeiro, AEM a seguir</li>
-          <li><span class="about-badge">↺</span> Refinamento por segmento quando a rota é traçada — usa perfil de veículo + declive</li>
-        </ul>
+        <h3>Etapas de cálculo</h3>
+
+        <div class="about-step">
+          <span class="about-badge">GRID</span>
+          <div>
+            <strong>Estimativa instantânea</strong> — aparece imediatamente ao pesquisar<br>
+            Interpolação sobre uma matriz OSRM pré-calculada. Precisão aproximada ±15&nbsp;%.<br>
+            Para hospitais: distância em linha recta × 1.6 (factor de estrada) ÷ 80&nbsp;km/h.
+          </div>
+        </div>
+
+        <div class="about-step">
+          <span class="about-badge">ORS</span>
+          <div>
+            <strong>Rede viária real</strong> — actualiza o painel em 3–10&nbsp;s<br>
+            Tempo de percurso real calculado pelo OpenRouteService para a rede rodoviária.<br>
+            O tempo ORS (velocidade civil) é corrigido pelo factor de emergência de cada meio:<br>
+            VMER ÷&nbsp;1.30 · SIV/AEM ÷&nbsp;1.07 · Transporte hospitalar ÷&nbsp;0.85 (sem sirene, condução suave).<br>
+            VMER+SIV calculados primeiro; AEM carregado a seguir em segundo plano.
+          </div>
+        </div>
+
+        <div class="about-step">
+          <span class="about-badge about-badge--route">ROTA</span>
+          <div>
+            <strong>Valor mais preciso</strong> — disponível apenas ao traçar a rota <span class="about-ex">(clica no meio)</span><br>
+            Análise segmento a segmento da rota real: tipo de via, declive e hora do dia.<br>
+            Usa perfis de velocidade diferenciados por tipo de meio e tipo de estrada (ver tabela abaixo).<br>
+            <em>Este é o valor mais fiável. Os anteriores são estimativas de triagem.</em>
+          </div>
+        </div>
       </section>
 
       <section class="about-section">
-        <h3>Velocidades de emergência</h3>
+        <h3>Perfis de velocidade (factores sobre tempo ORS civil)</h3>
         <table class="about-table">
           <thead><tr><th></th><th>Auto-est.</th><th>Nacional</th><th>Secundária</th><th>Urbana</th><th>Pista</th></tr></thead>
           <tbody>
-            <tr><td>VMER (car)</td><td>×1.50</td><td>×1.25</td><td>×1.18</td><td>×1.10</td><td>×1.00</td></tr>
-            <tr><td>AEM/SIV (van)</td><td>×1.20</td><td>×1.08</td><td>×1.05</td><td>×1.00</td><td>×0.90</td></tr>
+            <tr><td>VMER</td><td>×1.50</td><td>×1.25</td><td>×1.18</td><td>×1.10</td><td>×1.00</td></tr>
+            <tr><td>SIV / AEM</td><td>×1.20</td><td>×1.08</td><td>×1.05</td><td>×1.00</td><td>×0.90</td></tr>
             <tr><td>Transporte hosp.</td><td>×0.95</td><td>×0.82</td><td>×0.77</td><td>×0.70</td><td>×0.62</td></tr>
           </tbody>
         </table>
-        <p class="about-note">Factores relativos à velocidade civil ORS · Transporte sem sirene, condução suave (×0.85 base)</p>
-        <p class="about-note">Declive moderado ×0.88/×0.82 · Declive acentuado ×0.80/×0.72 · Hora de ponta urbana até ×0.82</p>
+        <p class="about-note">Declive moderado reduz ×0.88–0.82 · Declive acentuado ×0.80–0.72 · Hora de ponta urbana até ×0.82</p>
+        <p class="about-note">Factores aplicados apenas no cálculo de rota. ORS usa factor global por tipo de meio.</p>
       </section>
 
       <section class="about-section">
         <h3>Filtros</h3>
         <ul>
-          <li>Tempo máximo de resposta: ≤30' / ≤60' / ≤90'</li>
-          <li>Tipo de meio: VMER · SIV · AEM (activado manualmente para AEM)</li>
+          <li>Tempo máximo: ≤30' / ≤60' / ≤90'</li>
+          <li>Tipo de meio: VMER · SIV · AEM (AEM activado manualmente)</li>
           <li>Rotas activas são sempre visíveis independentemente dos filtros</li>
         </ul>
       </section>
@@ -154,8 +175,7 @@
         <h3>Fontes</h3>
         <ul>
           <li>Bases INEM Centro (CODU) · Hospitais SNS Centro</li>
-          <li>Cartografia OSM · Roteamento OpenRouteService</li>
-          <li>Códigos postais CTT · Grid OSRM pré-calculada</li>
+          <li>Cartografia OSM · Roteamento OpenRouteService · Códigos postais CTT</li>
         </ul>
       </section>
     </div>

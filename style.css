@@ -955,6 +955,27 @@ html, body {
   margin-top: 4px;
 }
 
+.about-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.about-step .about-badge {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.about-step strong { color: var(--text); }
+.about-step em { color: var(--text-faint); font-style: italic; }
+
+.about-badge--route {
+  border-color: var(--hosp-color);
+  color: var(--hosp-color);
+}
+
 /* =========================================
    SEARCH — KEYBOARD FOCUS
    ========================================= */
