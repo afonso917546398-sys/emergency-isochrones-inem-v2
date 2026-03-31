@@ -745,7 +745,7 @@ async function computeHospitalETAs(destLat, destLon) {
       candidates.forEach((h, i) => {
         const sec  = data.durations?.[i]?.[0] ?? null;
         const dist = data.distances?.[i]?.[0] ?? null;
-        h.etaMin = sec  != null ? sec  * HOSPITAL_SPEED_FACTOR  / 60 : estimateETA(destLat, destLon, h);
+        h.etaMin = sec  != null ? sec  / HOSPITAL_SPEED_FACTOR  / 60 : estimateETA(destLat, destLon, h, HOSPITAL_SPEED_FACTOR);
         h.distKm = dist != null ? dist / 1000                         : h.distKm * 1.45;
         h.source = sec != null ? 'ors' : 'estimate';
       });
@@ -832,10 +832,19 @@ function updateSearchFocus(items) {
   if (searchFocusIdx >= 0) items[searchFocusIdx].scrollIntoView({ block: 'nearest' });
 }
 
-// Simple fuzzy scorer: exact prefix > contains > character sequence
+/// Normalise accents so "serta" matches "Sertã", "proenca" matches "Proença", etc.
+function normalise(s) {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Fuzzy scorer: exact prefix > word boundary > contains > character sequence
 function fuzzyScore(query, text) {
-  const q = query.toLowerCase(), t = text.toLowerCase();
-  if (t.startsWith(q)) return 3;
+  const q = normalise(query), t = normalise(text);
+  if (t === q) return 5;
+  if (t.startsWith(q)) return 4;
+  // word-boundary prefix: each token of query starts a word in text
+  const words = t.split(/[\s,\-]+/);
+  if (words.some(w => w.startsWith(q))) return 3;
   if (t.includes(q)) return 2;
   let qi = 0;
   for (let i = 0; i < t.length && qi < q.length; i++) { if (t[i] === q[qi]) qi++; }
@@ -860,77 +869,134 @@ function hideSearchResults() {
   searchResults.innerHTML = '';
 }
 
-async function doSearch(query) {
-  const results = [];
+// Portugal continental bbox (minLon, minLat, maxLon, maxLat)
+const PT_BBOX = { minLat: 36.8, maxLat: 42.2, minLon: -9.6, maxLon: -6.1 };
+// Photon bbox string: minLon,minLat,maxLon,maxLat
+const PT_BBOX_STR = `${PT_BBOX.minLon},${PT_BBOX.minLat},${PT_BBOX.maxLon},${PT_BBOX.maxLat}`;
+// Nominatim viewbox string: minLon,maxLat,maxLon,minLat  (note: different order)
+const PT_VIEWBOX  = `${PT_BBOX.minLon},${PT_BBOX.maxLat},${PT_BBOX.maxLon},${PT_BBOX.minLat}`;
 
-  // GPS coordinates
+function inPortugalBox(lat, lon) {
+  return lat >= PT_BBOX.minLat && lat <= PT_BBOX.maxLat &&
+         lon >= PT_BBOX.minLon && lon <= PT_BBOX.maxLon;
+}
+
+// Build label from Photon feature properties (deduplicates repeated name parts)
+function photonLabel(p) {
+  const place = p.city || p.town || p.village || p.hamlet || '';
+  const geo   = p.county || p.state || '';
+  const parts = [p.name, p.street, place, geo].filter(Boolean);
+  return [...new Set(parts)].join(', ');
+}
+
+async function doSearch(query) {
+  const results   = [];
+  const seen      = new Set();
+  const SKIP      = new Set(['state','country','continent','region','province']);
+
+  // Returns a sanitised list of result objects from a Photon features array
+  function fromPhoton(features, q) {
+    const out = [];
+    (features || []).forEach(f => {
+      const p = f.properties || {};
+      if (SKIP.has(p.type)) return;
+      if (p.countrycode && p.countrycode !== 'PT') return;
+      const lat = f.geometry.coordinates[1];
+      const lon = f.geometry.coordinates[0];
+      if (!inPortugalBox(lat, lon)) return;
+      const label = photonLabel(p);
+      if (!label || seen.has(label)) return;
+      seen.add(label);
+      const sub   = [p.postcode, p.county || p.state].filter(Boolean).join(' · ') || 'Portugal';
+      out.push({ label, sub, lat, lon, score: fuzzyScore(q, label) });
+    });
+    out.sort((a, b) => b.score - a.score);
+    return out;
+  }
+
+  // 1. GPS coordinates (instant)
   const gpsMatch = query.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
   if (gpsMatch) {
     const lat = parseFloat(gpsMatch[1]), lon = parseFloat(gpsMatch[2]);
-    if (lat >= 36 && lat <= 44 && lon >= -10 && lon <= -6)
-      results.push({ label: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, sub: 'Coordenadas GPS', lat, lon });
+    if (inPortugalBox(lat, lon))
+      results.push({ label: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, sub: 'Coordenadas GPS', lat, lon, score: 99 });
   }
 
-  // Postal code — CP4 index first (fast)
+  // 2. Postal code — CTT local lookup (instant)
   const cpMatch = query.replace(/\s/g, '').match(/^(\d{4})-?(\d{3})?$/);
   if (cpMatch) {
     const cp4 = cpMatch[1], cp3 = cpMatch[2] || '';
     const fullCp = cp3 ? `${cp4}-${cp3}` : cp4;
-
-    if (cp3 && typeof POSTAL_DATA !== 'undefined') {
+    if (typeof POSTAL_DATA !== 'undefined') {
+      // Always search full POSTAL_DATA, whether cp3 is present or not
+      // For CP4-only (e.g. "3050"), fullCp="3050" matches all "3050-xxx" entries
       const lines = POSTAL_DATA.split('\n');
       let count = 0;
       for (const line of lines) {
         if (!line.trim()) continue;
         const [cp, loc, lat, lon] = line.split('|');
         if (cp && cp.startsWith(fullCp)) {
-          results.push({ label: `${cp} — ${loc}`, sub: 'Código Postal CTT', lat: parseFloat(lat), lon: parseFloat(lon) });
+          results.push({ label: `${cp} — ${loc}`, sub: 'Código Postal CTT', lat: parseFloat(lat), lon: parseFloat(lon), score: 99 });
           if (++count >= 8) break;
         }
       }
-    } else if (typeof POSTAL_CP4 !== 'undefined' && POSTAL_CP4[cp4]) {
-      const e = POSTAL_CP4[cp4];
-      results.push({ label: `${cp4} — ${e.loc}`, sub: 'Código Postal CTT', lat: e.lat, lon: e.lon });
     }
+    return renderSearchResults(results);   // postal codes → done immediately
   }
 
-  // Free text → Photon geocoder (fuzzy, no administrative)
-  if (results.length < 3 && !cpMatch) {
-    try {
-      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query + ' Portugal')}&limit=8&lang=pt`;
-      const data = await (await fetch(url)).json();
-      const SKIP_TYPES = new Set(['administrative','state','country','continent']);
-      const photonResults = [];
-      (data.features || []).forEach(f => {
-        const p = f.properties;
-        if (SKIP_TYPES.has(p.type)) return;
-        const nameParts = [p.name, p.street, p.city||p.town||p.village, p.county].filter(Boolean);
-        const label = [...new Set(nameParts)].join(', ');
-        const sub   = [p.postcode, p.state].filter(Boolean).join(' · ') || 'Portugal';
-        const score = fuzzyScore(query, label);
-        if (score > 0 || photonResults.length < 3)
-          photonResults.push({ label, sub, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], score });
-      });
-      photonResults.sort((a,b) => b.score - a.score);
-      results.push(...photonResults.slice(0, 5));
-    } catch(_) {}
+  if (gpsMatch) return renderSearchResults(results);  // GPS → done immediately
 
-    // Nominatim fallback (filter administrative/country/state)
-    if (results.length === 0) {
-      try {
-        const SKIP = new Set(['administrative','country','state','continent','region']);
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=pt&limit=8&addressdetails=1`;
-        const data = await (await fetch(url, { headers: { 'Accept-Language': 'pt' } })).json();
-        data.filter(r => !SKIP.has(r.type)).forEach(r => {
+  // 3. Photon geocoder (fast path, ~300–600 ms)
+  //    bbox restricts results to Portugal mainland at the API level
+  //    lang=pt is NOT supported by Photon (only default/de/en/fr)
+  try {
+    const url  = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=10&bbox=${PT_BBOX_STR}`;
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const data = await resp.json();
+      results.push(...fromPhoton(data.features, query).slice(0, 5));
+    }
+  } catch(_) {}
+
+  // 3b. Street+city zero-result retry: strip everything after the first comma
+  if (results.length === 0 && query.includes(',')) {
+    try {
+      const streetOnly = query.split(',')[0].trim();
+      const url  = `https://photon.komoot.io/api/?q=${encodeURIComponent(streetOnly)}&limit=8&bbox=${PT_BBOX_STR}`;
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const data = await resp.json();
+        results.push(...fromPhoton(data.features, streetOnly).slice(0, 4));
+      }
+    } catch(_) {}
+  }
+
+  // 4. Nominatim fallback — only when Photon returned nothing
+  //    countrycodes=pt + bounded viewbox = hard-restricted to Portugal
+  if (results.length === 0) {
+    try {
+      const SKIP_NOM = new Set(['country','state','continent','region','province']);
+      const url  = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=pt&limit=8&addressdetails=1&bounded=1&viewbox=${PT_VIEWBOX}`;
+      const resp = await fetch(url, { headers: { 'Accept-Language': 'pt' } });
+      if (resp.ok) {
+        const data = await resp.json();
+        (Array.isArray(data) ? data : []).forEach(r => {
+          if (SKIP_NOM.has(r.type)) return;
+          const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+          if (!inPortugalBox(lat, lon)) return;
           const parts = r.display_name.split(',').map(s => s.trim());
           const label = parts.slice(0, 3).join(', ');
-          const sub   = parts.slice(3, 5).filter(Boolean).join(', ');
-          results.push({ label, sub, lat: parseFloat(r.lat), lon: parseFloat(r.lon) });
+          if (!label || seen.has(label)) return;
+          seen.add(label);
+          const sub = parts.slice(3, 5).join(', ') || 'Portugal';
+          results.push({ label, sub, lat, lon, score: fuzzyScore(query, label) });
         });
-      } catch(_) {}
-    }
+      }
+    } catch(_) {}
   }
 
+  results.sort((a, b) => (b.score || 0) - (a.score || 0));
+  results.splice(6);
   renderSearchResults(results);
 }
 
